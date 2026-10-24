@@ -1,0 +1,11 @@
+.gradle/
+build/
+.idea/
+*.iml
+.DS_Store
+local.properties
+.kotlin/
+# отдельный проект (своё git-хранилище)
+Chrome crawler/
+# плагины Murglar кладутся сюда при разработке — это чужие jar
+plugins/*.jar
