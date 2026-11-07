@@ -17,9 +17,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.rememberScrollbarAdapter
-import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -77,15 +74,6 @@ class NodeContent(val node: Node) {
     val dirs get() = items.filter { it !is BaseTrack }
 }
 
-@Composable
-fun ScrollList(modifier: Modifier = Modifier, content: LazyListScope.() -> Unit) {
-    val state = rememberLazyListState()
-    Box(modifier) {
-        LazyColumn(Modifier.fillMaxSize(), state, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(2.dp), content = content)
-        VerticalScrollbar(rememberScrollbarAdapter(state), Modifier.align(Alignment.CenterEnd).padding(vertical = 12.dp, horizontal = 2.dp))
-    }
-}
-
 private fun typeLabel(t: String) = when (t) {
     NodeType.ALBUM -> "Альбом"; NodeType.ARTIST -> "Исполнитель"; NodeType.PLAYLIST -> "Плейлист"; NodeType.RADIO -> "Волна"
     NodeType.PODCAST -> "Подкаст"; NodeType.AUDIOBOOK -> "Аудиокнига"; else -> "Раздел"
@@ -110,7 +98,7 @@ fun NodeScreen(node: Node) {
                 Cover(node.bestCoverUrl, 140.dp, shape = R.lg, round = node.nodeType == NodeType.ARTIST,
                     fallback = if (node.nodeType == NodeType.ARTIST) Ic.user else Ic.disc)
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Row2 { Cap(typeLabel(node.nodeType)); service?.let { Txt("· ${it.name}", color = p.muted, style = T.small) } }
+                    Row2 { Cap(typeLabel(node.nodeType)); service?.let { ServiceLogo(it.id, 14.dp); Txt(it.name, color = p.muted, style = T.small) } }
                     Txt(node.nodeName, style = T.h1, maxLines = 2)
                     node.nodeSummary?.takeIf { it.isNotBlank() }?.let { Txt(it, color = p.muted, style = T.body, maxLines = 3) }
                     Spacer(Modifier.height(4.dp))
@@ -151,6 +139,84 @@ fun NodeScreen(node: Node) {
     }
 }
 
+// Страница трека, как в сервисе: крупная обложка, исполнители и альбом — ссылками, действия;
+// ниже — разделы сервиса для этого трека: похожие треки и альбом (откуда трек).
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun TrackScreen(track: BaseTrack) {
+    val p = pal
+    val service = Services.forTrack(track)
+    val resolver = service?.murglar?.nodeResolver
+    val related = remember(track.mediaId) { runCatching { resolver?.getRelatedNodePaths(track) }.getOrNull().orEmpty() }
+    val lists = remember(track.mediaId) { mutableStateListOf<Pair<NamedPath, NodeContent>>() }
+    val favs by Library.favorites.items.collectAsState()
+    val serviceLikes by melos.library.ServiceLikes.ids.collectAsState()
+    val liked = track.mediaId in serviceLikes || favs.any { it.mediaId == track.mediaId }
+    LaunchedEffect(track.mediaId) {
+        lists.clear()
+        // сначала похожие, потом альбом — как на страницах треков в сервисах
+        for (r in related.filter { it.type == NodeType.TRACK } + related.filter { it.type == NodeType.ALBUM }) {
+            val node = runCatching { resolver!!.getNode(r.path) }.onFailure { melos.host.Log.w("Track", "${r.name}: ${it.message}") }.getOrNull() ?: continue
+            val c = NodeContent(node)
+            lists += r to c
+            c.more()
+        }
+    }
+    val similar = lists.firstOrNull { it.first.type == NodeType.TRACK }?.second?.tracks.orEmpty()
+
+    ScrollList(Modifier.fillMaxSize()) {
+        item {
+            Row(Modifier.fillMaxWidth().padding(bottom = 18.dp).enter(0, track.mediaId), horizontalArrangement = Arrangement.spacedBy(20.dp), verticalAlignment = Alignment.Bottom) {
+                Cover(track.bigCoverUrl ?: track.smallCoverUrl, 200.dp, shape = R.lg)
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row2 { Cap("Трек"); service?.let { ServiceLogo(it.id, 14.dp); Txt(it.name, color = p.muted, style = T.small) } }
+                    Txt(track.fullTitle, style = T.h1, maxLines = 3)
+                    Txt(listOfNotNull(track.artists.ifEmpty { null }, track.albumName, track.albumReleaseDate?.year?.toString(), track.genre,
+                        track.durationMs.takeIf { it > 0 }?.let(::fmt)).joinToString(" · "), color = p.muted, maxLines = 2)
+                    track.subtitle?.takeIf { it.isNotBlank() }?.let { Txt(it, color = p.warn, style = T.small) }
+                    Spacer(Modifier.height(4.dp))
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        // как в сервисах: трек, а за ним — похожие
+                        PrimaryButton("Слушать", { Player.playList(listOf(track) + similar.filter { it.mediaId != track.mediaId }, 0, track.title); BrainBus.wave() }, icon = Ic.play)
+                        Btn("Следующим", { Player.playNext(track) }, icon = Ic.playNext)
+                        Btn("В очередь", { Player.enqueue(listOf(track)) }, icon = Ic.plus)
+                        RoundButton(if (liked) Ic.heartOn else Ic.heart, { Player.toggleLike(track); if (!liked) BrainBus.heart() }, size = 36.dp, active = liked)
+                        val disliked = Library.dislikes.items.collectAsState().value.let { Library.isDisliked(track) }
+                        RoundButton(if (disliked) Ic.dislikeOn else Ic.dislike, { Player.toggleDislike(track) }, size = 36.dp, active = disliked)
+                        Btn("Сохранить на устройство", { saveToDevice(listOf(track)) }, icon = Ic.download)
+                        track.serviceUrl?.takeIf { it.startsWith("http") }?.let { url ->
+                            Btn("Открыть в ${service?.name ?: "сервисе"}", { melos.core.Browse.url(url) }, icon = Ic.link)
+                        }
+                    }
+                    // исполнители, альбом, волна — переходы, как ссылки на странице трека в сервисе
+                    val links = related.filter { it.type != NodeType.TRACK }
+                    if (links.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        links.forEach { r -> Pill(r.name, icon = relIcon(r)) { Nav.go(Screen.OpenPath(r.path, r.name)) } }
+                    }
+                }
+            }
+        }
+        lists.forEach { (r, c) ->
+            val album = r.type == NodeType.ALBUM
+            val title = if (album) "Из альбома «${r.name}»" else r.name
+            item(key = "h${r.path}") {
+                Row2(Modifier.padding(top = 10.dp, bottom = 6.dp)) {
+                    Cap(title)
+                    Spacer(Modifier.weight(1f))
+                    if (c.items.isNotEmpty()) Pill(if (album) "Открыть альбом" else "Все", icon = Ic.right) { Nav.go(Screen.Open(c.node)) }
+                }
+            }
+            val tracks = c.tracks
+            val shown = if (album) tracks else tracks.take(10)
+            itemsIndexed(shown, key = { _, t -> "${r.path}/${t.nodePath}" }) { i, t ->
+                TrackRow(t, i, { Player.playList(tracks, i, title) }, Modifier.enter(i, t.nodePath), showCover = !album)
+            }
+            if (c.loading && c.items.isEmpty()) item(key = "l${r.path}") { Txt("Загружаю…", Modifier.padding(8.dp), p.muted, T.small) }
+            c.error?.let { e -> item(key = "e${r.path}") { Txt(e, Modifier.padding(8.dp), p.critical, T.small, maxLines = 3) } }
+        }
+    }
+}
+
 private fun relIcon(r: NamedPath) = when (r.type) { NodeType.ARTIST -> Ic.user; NodeType.ALBUM -> Ic.disc; NodeType.RADIO -> Ic.wave; else -> Ic.link }
 
 @Composable
@@ -179,7 +245,7 @@ fun PathScreen(s: Screen.OpenPath) {
     LaunchedEffect(s.path) {
         runCatching { Services.forPath(s.path)!!.murglar.nodeResolver.getNode(s.path) }
             .onSuccess {
-                if (it is BaseRadio) { Player.playRadio(it); BrainBus.wave(1.2f); Nav.back() } else node = it
+                if (it is BaseRadio) { Player.playRadio(it); BrainBus.wave(1.2f); Nav.drop() } else node = it
             }
             .onFailure { err = it.message ?: "Не открылось" }
     }
@@ -245,7 +311,7 @@ fun DownloadsScreen() {
                 Cap("Библиотека"); Txt("Загрузки", style = T.h1)
                 Txt("Папка: ${Downloads.folder.path}", color = p.muted, style = T.monoSmall)
                 Row2 {
-                    Btn("Открыть папку", { runCatching { Downloads.folder.mkdirs(); java.awt.Desktop.getDesktop().open(Downloads.folder) } }, icon = Ic.folder)
+                    Btn("Открыть папку", { Downloads.folder.mkdirs(); melos.core.Browse.dir(Downloads.folder) }, icon = Ic.folder)
                 }
             }
         }

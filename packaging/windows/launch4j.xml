@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Melos.exe: запускает app\melos.jar на Java из папки jre рядом (ставить Java не нужно). Пути exe и иконки подставляет build.sh -->
+<launch4jConfig>
+  <dontWrapJar>true</dontWrapJar>
+  <headerType>gui</headerType>
+  <jar>app\melos.jar</jar>
+  <outfile>@OUT@</outfile>
+  <errTitle>Melos</errTitle>
+  <chdir>.</chdir>
+  <priority>normal</priority>
+  <stayAlive>false</stayAlive>
+  <restartOnCrash>false</restartOnCrash>
+  <icon>@ICON@</icon>
+  <jre>
+    <path>jre</path>
+    <requiresJdk>false</requiresJdk>
+    <requires64Bit>true</requires64Bit>
+    <opt>-Dfile.encoding=UTF-8</opt>
+    <opt>-Dstdout.encoding=UTF-8</opt>
+    <opt>-Dcompose.application.configure.swing.globals=true</opt>
+  </jre>
+  <versionInfo>
+    <fileVersion>1.0.0.0</fileVersion>
+    <txtFileVersion>1.0.0</txtFileVersion>
+    <fileDescription>Melos</fileDescription>
+    <copyright>Melos</copyright>
+    <productVersion>1.0.0.0</productVersion>
+    <txtProductVersion>1.0.0</txtProductVersion>
+    <productName>Melos</productName>
+    <internalName>Melos</internalName>
+    <originalFilename>Melos.exe</originalFilename>
+  </versionInfo>
+</launch4jConfig>

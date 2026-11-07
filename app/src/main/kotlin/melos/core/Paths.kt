@@ -26,6 +26,14 @@ object Paths {
     val logs: File get() = File(home, "logs").apply { mkdirs() }
     fun file(name: String) = File(home, name)
 
+    /** Откуда качать VLC, если плеер его не нашёл, — страница под текущую ОС. */
+    val vlcDownloadUrl: String
+        get() = when {
+            isWindows -> "https://www.videolan.org/vlc/download-windows.html"
+            isMac -> "https://www.videolan.org/vlc/download-macosx.html"
+            else -> "https://www.videolan.org/vlc/download-linux.html"
+        }
+
     /** Старые загрузки остаются, где были: в их записях — абсолютные пути. */
     val defaultDownloads: File
         get() = File(System.getProperty("user.home"), "Music/Flayer").takeIf { it.isDirectory }

@@ -4,6 +4,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -35,6 +36,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -62,6 +64,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.math.sin
 import kotlinx.coroutines.delay
 
 val pal @Composable get() = LocalPalette.current
@@ -89,7 +92,11 @@ fun Modifier.lux(onClick: (() -> Unit)?, shape: Shape = R.pill, bloom: Boolean =
     val src = remember { MutableInteractionSource() }
     val hovered by src.collectIsHoveredAsState()
     val pressed by src.collectIsPressedAsState()
-    val scale by animateFloatAsState(if (pressed) 0.96f else 1f, tween(200, easing = EaseVelvet))
+    // пружинка: нажатие проваливает кнопку, отпускание возвращает с лёгким перелётом — тактильно, как физическая
+    val scale by androidx.compose.animation.core.animateFloatAsState(if (pressed) 0.955f else 1f,
+        androidx.compose.animation.core.spring(
+            dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
+            stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow))
     val p = pal
     val border by animateColorAsState(if (hovered && bloom) lerpC(p.bd, p.acc, 0.72f) else Color.Transparent, tween(280, easing = EaseLux))
     return this
@@ -286,9 +293,41 @@ fun fmt(ms: Long): String {
 @Composable
 fun Empty(text: String, modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit = {}) =
     Column(modifier.padding(24.dp).width(300.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        SleepDots()                                          // спящий мозг: дуга дышащих точек над текстом
         Txt(text, color = pal.muted, style = T.body.copy(textAlign = androidx.compose.ui.text.style.TextAlign.Center), maxLines = 6)
         content()
     }
+
+/** Вздрог влево-вправо после ошибки (сердце при неудачном лайке): вызывать с ключом момента ошибки. */
+@Composable
+fun Modifier.shake(key: Long): Modifier {
+    if (!Look.motion) return this
+    val a = remember(key) { Animatable(if (key == 0L) 0f else 1f) }
+    LaunchedEffect(key) { if (key > 0L) a.animateTo(0f, tween(500, easing = EaseHeavy)) }
+    val v = a.value
+    return if (v <= 0f) this else graphicsLayer { translationX = sin(v * 3 * Math.PI).toFloat() * 6f * v }
+}
+
+// Дуга из 11 точек с медленной «дыхательной» волной — спокойная жизнь там, где пусто.
+@Composable
+private fun SleepDots() {
+    if (!Look.motion) return
+    val p = pal
+    var frame by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
+    androidx.compose.runtime.LaunchedEffect(Unit) { while (true) androidx.compose.runtime.withFrameNanos { frame = it } }
+    Canvas(Modifier.width(120.dp).height(28.dp)) {
+        frame.let { }
+        val now = System.currentTimeMillis() / 1000f
+        for (k in 0..10) {
+            val t = k / 10f
+            val breathe = 0.5f + 0.5f * kotlin.math.sin(now * 1.4f - t * 2.6f)
+            val lift = breathe * 5.dp.toPx()
+            val c = lerpC(p.acc, p.c2, t)
+            drawCircle(c.copy(alpha = 0.20f + 0.45f * breathe), (1.6f + 1.2f * breathe).dp.toPx(),
+                Offset(size.width * t + (size.width / 10f) / 2 - 2.dp.toPx(), size.height - 4.dp.toPx() - lift))
+        }
+    }
+}
 
 @Composable
 fun Divider(modifier: Modifier = Modifier) = Box(modifier.fillMaxWidth().height(1.dp).background(pal.bd))

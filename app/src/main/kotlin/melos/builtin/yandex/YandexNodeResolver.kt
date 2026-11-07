@@ -14,7 +14,10 @@ import com.badmanners.murglar.lib.core.model.node.RadioNodeUpdate
 import com.badmanners.murglar.lib.core.model.radio.BaseRadio
 import com.badmanners.murglar.lib.core.model.track.BaseTrack
 import com.badmanners.murglar.lib.core.node.BaseNodeResolver
+import com.badmanners.murglar.lib.core.model.event.PlayerEvent
 import com.badmanners.murglar.lib.core.node.Directory
+import com.badmanners.murglar.lib.core.node.EventConfig
+import com.badmanners.murglar.lib.core.node.EventHandler
 import com.badmanners.murglar.lib.core.node.LikeConfig
 import com.badmanners.murglar.lib.core.node.MappedEntity
 import com.badmanners.murglar.lib.core.node.Root
@@ -59,8 +62,20 @@ class YandexNodeResolver(murglar: YandexMurglar, messages: BuiltinMessages) :
         Search("searchPlaylists", messages::playlistsSearch, hasSubdirectories = true, contentNodeType = PLAYLIST,
             nodeContentSupplier = { p, page, params -> murglar.search(params.getQuery(), "playlist", page).mapNotNull(murglar::playlist).convertPlaylists(p) }),
 
+        Directory("*/track-<trackId>/similar", NON_PAGEABLE, false, TRACK,
+            nodeSupplier = { p, _ -> subdirectoryNode("similar", "Похожие треки", p) },            // страница трека открывает раздел по пути
+            nodeContentSupplier = { p, _, params -> murglar.similarTracks(params["trackId"]!!).convertTracks(p) }),
         Track("*/track-<trackId>", relatedPaths = ::relatedForTrack,
             like = LikeConfig(rootNodePath("myTracks"), ::likeTrack),
+            // треки волны отчитываются ротору: начат / дослушан / пропущен — так волна учится и не стоит на месте
+            events = listOf(
+                EventConfig(PlayerEvent.TrackStart::class, object : EventHandler<PlayerEvent.TrackStart> {
+                    override suspend fun Node.handleEvent(event: PlayerEvent.TrackStart, parentNode: Node?) { (this as? FTrack)?.let { murglar.waveEvent(it, started = true) } }
+                }),
+                EventConfig(PlayerEvent.TrackEnd::class, object : EventHandler<PlayerEvent.TrackEnd> {
+                    override suspend fun Node.handleEvent(event: PlayerEvent.TrackEnd, parentNode: Node?) { (this as? FTrack)?.let { murglar.waveEvent(it, started = false, playedMs = event.endTimeMs) } }
+                }),
+            ),
             urlPatterns = listOf("*music.yandex.*/album/<albumId:\\d+>/track/<trackId:\\d+>*", "*music.yandex.*/track/<trackId:\\d+>*"),
             nodeSupplier = { p, params -> murglar.tracksByIds(listOf(params["trackId"]!!)).firstOrNull()?.convertTrack(p) ?: error("Трек недоступен") }),
 
@@ -120,7 +135,8 @@ class YandexNodeResolver(murglar: YandexMurglar, messages: BuiltinMessages) :
         return listOfNotNull(
             NamedPath("Волна по треку", RADIO, unmappedPath().child("station-track_${t.id}")),
             t.albumId?.let { NamedPath(t.albumName ?: "Альбом", ALBUM, unmappedPath().child("album-$it")) },
-        ) + t.artistIds.zip(t.artistNames).map { (id, name) -> NamedPath(name, ARTIST, unmappedPath().child("artist-$id")) }
+        ) + t.artistIds.zip(t.artistNames).map { (id, name) -> NamedPath(name, ARTIST, unmappedPath().child("artist-$id")) } +
+            NamedPath("Похожие треки", TRACK, unmappedPath().child("track-${t.id}").child("similar"))
     }
 
     private fun relatedForAlbum(node: Node): List<NamedPath> {

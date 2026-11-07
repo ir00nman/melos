@@ -14,7 +14,6 @@ import com.badmanners.murglar.lib.core.utils.MediaId
 import com.badmanners.murglar.lib.core.webview.WebViewProvider
 import melos.builtin.local.LocalMurglar
 import melos.builtin.lrclib.LrcLibProvider
-import melos.builtin.radio.RadioMurglar
 import melos.builtin.soundcloud.SoundCloudMurglar
 import melos.builtin.yandex.YandexMurglar
 import melos.core.Paths
@@ -76,7 +75,7 @@ object Services {
         listOf(
             builtin("ynd") { id, p -> YandexMurglar(id, p, HttpNetwork, Toasts, Log) },
             builtin("sc") { id, p -> SoundCloudMurglar(id, p, HttpNetwork, Toasts, Log) },
-            builtin("radio") { id, p -> RadioMurglar(id, p, HttpNetwork, Toasts, Log) },
+            builtin("vk") { id, p -> melos.builtin.vk.VkMurglar(id, p, HttpNetwork, Toasts, Log) },
             builtin("local") { id, p -> LocalMurglar(id, p, HttpNetwork, Toasts, Log) },
         ).forEach { services += Service(it as Murglar<BaseTrack>, Origin.Builtin) }
 

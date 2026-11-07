@@ -3,7 +3,6 @@ package melos.ui
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -29,7 +28,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
@@ -43,6 +41,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.clip
@@ -84,6 +87,9 @@ fun SheetHost(title: String, onClose: () -> Unit, width: Int = 640, content: @Co
     val a = remember { Animatable(if (Look.motion) 0f else 1f) }
     LaunchedEffect(Unit) { a.animateTo(1f, tween(360, easing = EaseLux)) }
     Box(Modifier.fillMaxSize().graphicsLayer { alpha = a.value }.background(p.scrim)
+        .onPreviewKeyEvent { e ->
+            if (e.type == androidx.compose.ui.input.key.KeyEventType.KeyDown && e.key == androidx.compose.ui.input.key.Key.Escape) { onClose(); true } else false
+        }
         .clickable(remember { MutableInteractionSource() }, null, onClick = onClose), contentAlignment = Alignment.BottomCenter) {
         val scroll = rememberScrollState()
         Column(Modifier.widthIn(max = width.dp).fillMaxWidth().fillMaxHeight(0.9f)
@@ -96,10 +102,7 @@ fun SheetHost(title: String, onClose: () -> Unit, width: Int = 640, content: @Co
                 Txt(title, style = T.h2)
             }
             Spacer(Modifier.height(8.dp))
-            Box(Modifier.weight(1f)) {
-                Column(Modifier.fillMaxSize().verticalScroll(scroll), verticalArrangement = Arrangement.spacedBy(8.dp), content = content)
-                VerticalScrollbar(rememberScrollbarAdapter(scroll), Modifier.align(Alignment.CenterEnd))
-            }
+            SheetScroll(scroll, Modifier.weight(1f), content = content)
         }
     }
 }
@@ -150,6 +153,22 @@ fun SettingsSheet() {
         }
         SheetCard(n++) {
             Cap("Звук")
+            // на виду: чем реально играет Melos; без VLC плеер молчит — отсюда же можно его найти
+            var vlc by remember { mutableStateOf(Player.available) }
+            Row2(Modifier.padding(top = 6.dp)) {
+                if (vlc) {
+                    Icon(Ic.check, p.ok, size = 15.dp)
+                    Txt("VLC ${remember { runCatching { melos.player.VlcEngine.version() }.getOrDefault("?") }} — звук через него",
+                        Modifier.padding(start = 6.dp), p.muted, T.small)
+                } else {
+                    Icon(Ic.shield, p.critical, size = 15.dp)
+                    Txt("VLC не найден — плеер молчит", Modifier.weight(1f).padding(start = 6.dp), p.critical, T.small)
+                    Btn("Найти", { vlc = Player.recheckVlc() })
+                    Btn("Установить", {
+                        melos.core.Browse.url(melos.core.Paths.vlcDownloadUrl)
+                    })
+                }
+            }
             SwitchRow("Выравнивать громкость", Player.normalize.collectAsState().value, { Player.normalize.value = it })
             SwitchRow("Звук через Melos", tap, { Player.setTap(it) })
             Row2(Modifier.padding(top = 12.dp)) {
@@ -164,22 +183,34 @@ fun SettingsSheet() {
         SheetCard(n++) {
             Cap("Загрузки")
             var folder by remember { mutableStateOf(Downloads.folder.path) }
-            var template by remember { mutableStateOf(Downloads.template) }
             Row2(Modifier.padding(top = 8.dp)) {
                 Input(folder, { folder = it; Downloads.folder = java.io.File(it) }, Modifier.weight(1f))
-                Btn("Выбрать…", {
-                    val ch = javax.swing.JFileChooser(folder).apply { fileSelectionMode = javax.swing.JFileChooser.DIRECTORIES_ONLY }
-                    if (ch.showOpenDialog(null) == javax.swing.JFileChooser.APPROVE_OPTION) { folder = ch.selectedFile.path; Downloads.folder = ch.selectedFile }
-                })
+                Btn("Выбрать…", { melos.core.Browse.pickDir(java.io.File(folder)) { folder = it.path; Downloads.folder = it } })
             }
-            Input(template, { template = it; Downloads.template = it }, Modifier.fillMaxWidth().padding(top = 8.dp))
+            Txt("Треки сохраняются прямо в эту папку, без подпапок: «Исполнитель - Название», в лучшем качестве, какое отдаёт сервис.",
+                Modifier.padding(top = 8.dp), pal.muted, T.small, maxLines = 3)
         }
         // аккаунты сервисов — только в меню сервиса слева («Войти в аккаунт» / «Аккаунт»), здесь их нет
+        SheetCard(n++) {
+            Cap("Обновления")
+            val st by melos.host.Updater.state.collectAsState()
+            Row2(Modifier.padding(top = 8.dp)) {
+                Txt("Melos ${melos.host.Updater.current}", Modifier.weight(1f), p.muted, T.small)
+                when (st) {
+                    is melos.host.Updater.State.Checking -> Txt("Проверяю…", color = p.muted, style = T.small)
+                    is melos.host.Updater.State.Available -> PrimaryButton("Обновить до ${(st as melos.host.Updater.State.Available).version}",
+                        { melos.host.Updater.update() }, icon = Ic.download)
+                    is melos.host.Updater.State.Downloading -> Txt("Скачиваю… ${((st as melos.host.Updater.State.Downloading).frac * 100).toInt()} %", color = p.muted, style = T.small)
+                    is melos.host.Updater.State.Restarting -> Txt("Перезапускаюсь…", color = p.muted, style = T.small)
+                    else -> Btn("Проверить обновления", { melos.host.Updater.startCheck() }, icon = Ic.refresh)
+                }
+            }
+        }
         SheetCard(n++) {
             Cap("Плагины Murglar")
             Txt(Paths.plugins.path, Modifier.padding(top = 6.dp), p.muted, T.monoSmall)
             Row2(Modifier.padding(top = 10.dp)) {
-                Btn("Открыть папку", { runCatching { java.awt.Desktop.getDesktop().open(Paths.plugins) } }, icon = Ic.folder)
+                Btn("Открыть папку", { melos.core.Browse.dir(Paths.plugins) }, icon = Ic.folder)
                 Btn("Перезагрузить", { Services.load(); Toasts.shortNotify("Плагины перезагружены") }, icon = Ic.refresh)
             }
             val plugins = services.filter { it.origin is Origin.Plugin }
@@ -190,10 +221,13 @@ fun SettingsSheet() {
     }
 }
 
-private val unofficial = setOf("ynd", "sc")
+private val unofficial = setOf("ynd", "sc", "vk")
 private val tokenHelp = mapOf("ynd" to "https://ym.marshal.dev/token/")
 
 @OptIn(ExperimentalLayoutApi::class)
+// вход живёт дольше карточки: панель закрылась, пока пользователь входит в окне Chromium, — вход не обрывается
+private val loginScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main)
+
 @Composable
 private fun ServiceCard(s: Service) {
     val p = pal
@@ -221,7 +255,7 @@ private fun ServiceCard(s: Service) {
     }
     tokenHelp[s.id]?.let { url ->
         if (!login.isLogged) Row2(Modifier.padding(top = 8.dp)) {
-            Btn("Как получить токен", { runCatching { java.awt.Desktop.getDesktop().browse(java.net.URI(url)) } }, icon = Ic.link)
+            Btn("Как получить токен", { melos.core.Browse.url(url) }, icon = Ic.link)
         }
     }
 
@@ -242,15 +276,15 @@ private fun ServiceCard(s: Service) {
                 PrimaryButton(if (busy) "Жду входа…" else w.label(), {
                     if (busy) return@PrimaryButton
                     busy = true
-                    scope.launch {
+                    loginScope.launch {
                         val ok = runCatching { login.webLogin(w.id, EmbeddedWebView) }
                         busy = false
                         ok.onSuccess { done ->
                             if (done && login.isLogged) { Toasts.shortNotify("Вход в ${s.name} выполнен"); BrainBus.flash(p.ok); Bursts.fire(); Services.bump() }
                             else if (w.id == melos.builtin.TokenLoginResolver.BROWSER)
-                                Toasts.shortNotify("Войдите в браузере, затем скопируйте адрес открывшейся страницы (⌘L, ⌘C) — Melos подхватит его сам")
+                                Toasts.shortNotify("Войдите в браузере — Melos сам заметит, когда вход завершится. Если macOS спросит, можно ли управлять браузером, — разрешите")
                             else Toasts.error("${s.name}: окно входа закрылось до выдачи токена — попробуйте ещё раз или войдите с токеном")
-                        }.onFailure { Toasts.error("${s.name}: ${it.message}"); BrainBus.shake() }
+                        }.onFailure { melos.host.Log.e("Login", "${s.id} ${w.id}", it); Toasts.error("${s.name}: ${it.message}"); BrainBus.shake() }
                     }
                 }, icon = Ic.user)
             }
@@ -352,9 +386,9 @@ fun EqSheet() {
     fun edit(set: () -> Unit) { set(); Player.eqPreset.value = "custom" }
 
     Box(Modifier.fillMaxSize()) {
-        Column(Modifier.align(Alignment.BottomEnd).padding(end = 18.dp, bottom = 118.dp).width(740.dp)
+        Column(Modifier.align(Alignment.BottomCenter).padding(horizontal = 10.dp, vertical = 12.dp).widthIn(max = 740.dp).fillMaxWidth()
             .enter(0, "eq").shadow(24.dp, R.lg).clip(R.lg).background(lerpC(p.bg, p.card2.copy(alpha = 1f), 0.9f)).border(1.dp, p.bd, R.lg)
-            .clickable(remember { MutableInteractionSource() }, null) {}.padding(18.dp),
+            .clickable(remember { MutableInteractionSource() }, null) {}.padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Box(Modifier.weight(1f)) {
@@ -364,7 +398,7 @@ fun EqSheet() {
                         Icon(Ic.right, p.muted, Modifier.graphicsLayer { rotationZ = if (menu) -90f else 90f }, 18.dp)
                     }
                     if (menu) androidx.compose.ui.window.Popup(alignment = Alignment.BottomStart, offset = androidx.compose.ui.unit.IntOffset(0, -56),
-                        onDismissRequest = { menu = false }, properties = androidx.compose.ui.window.PopupProperties(focusable = true), onPreviewKeyEvent = ::globalKey) {
+                        onDismissRequest = { menu = false }, properties = androidx.compose.ui.window.PopupProperties(focusable = true)) {
                         Column(Modifier.width(300.dp).heightIn(max = 420.dp).clip(R.md).background(p.card2.copy(alpha = 1f)).border(1.dp, p.bd, R.md)
                             .verticalScroll(rememberScrollState()).padding(6.dp)) {
                             if (Player.hasMurglarEq) MenuItem("Как в Murglar", on = false) {
@@ -385,14 +419,18 @@ fun EqSheet() {
             if (on && over >= 1f) Txt("Перегруз до +${over.roundToInt()} дБ на громких местах — убавь «Усил.» на ${over.roundToInt()}",
                 color = p.acc, style = T.small)
             val bands = VlcEngine.bands
-            Row(Modifier.fillMaxWidth().height(250.dp).graphicsLayer { alpha = if (on) 1f else 0.5f }, horizontalArrangement = Arrangement.SpaceBetween) {
-                EqBar("Усил.", preamp, reset = Player.VLC_UNITY_PREAMP) { v -> edit { Player.eqPreamp.value = v } }
-                amps.forEachIndexed { i, _ ->
-                    val hz = bands.getOrNull(i) ?: 0f
-                    EqBar(if (hz >= 1000) "${(hz / 1000).roundToInt()} кГц" else "${hz.roundToInt()} Гц", amps[i]) { nv ->
-                        edit { Player.eqAmps.value = Player.eqAmps.value.toMutableList().also { it[i] = nv } }
-                    }
+            @Composable fun bar(i: Int) {
+                val hz = bands.getOrNull(i - 1) ?: 0f
+                if (i == 0) EqBar("Усил.", preamp, reset = Player.VLC_UNITY_PREAMP) { v -> edit { Player.eqPreamp.value = v } }
+                else EqBar(if (hz >= 1000) "${(hz / 1000).roundToInt()} кГц" else "${hz.roundToInt()} Гц", amps[i - 1]) { nv ->
+                    edit { Player.eqAmps.value = Player.eqAmps.value.toMutableList().also { it[i - 1] = nv } }
                 }
+            }
+            androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth().graphicsLayer { alpha = if (on) 1f else 0.5f }) {
+                if (maxWidth < 680.dp) Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(Modifier.fillMaxWidth().height(170.dp), horizontalArrangement = Arrangement.SpaceBetween) { (0..5).forEach { bar(it) } }
+                    Row(Modifier.fillMaxWidth().height(170.dp), horizontalArrangement = Arrangement.SpaceBetween) { (6..10).forEach { bar(it) } }
+                } else Row(Modifier.fillMaxWidth().height(250.dp), horizontalArrangement = Arrangement.SpaceBetween) { (0..10).forEach { bar(it) } }
             }
         }
     }

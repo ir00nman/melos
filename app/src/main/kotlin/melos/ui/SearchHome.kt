@@ -31,6 +31,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.border
+import androidx.compose.foundation.background
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.style.TextAlign
@@ -54,21 +58,42 @@ private class SearchSection(val service: Service, val root: Node, val content: N
 
 private fun searchRoots(s: Service) = runCatching { s.murglar.nodeResolver.getRootNodes(true).filter { it.nodeParameters.isSearchable } }.getOrDefault(emptyList())
 
+/** Вкладка поиска сервиса — по тому, что ищет раздел, как на сайтах: Треки, Альбомы, Исполнители, Плейлисты. */
+private fun tabLabel(root: Node) = when (root.nodeParameters.contentNodeType) {
+    NodeType.TRACK -> "Треки"; NodeType.ALBUM -> "Альбомы"; NodeType.ARTIST -> "Исполнители"; NodeType.PLAYLIST -> "Плейлисты"
+    NodeType.PODCAST -> "Подкасты"; NodeType.AUDIOBOOK -> "Аудиокниги"; else -> root.nodeName.substringBefore(':')
+}
+
+/**
+ * Поиск. serviceId == null — общий поиск Melos: сразу во всех сервисах, переключатель сервисов сверху.
+ * Иначе — поиск одного сервиса (из его меню): без переключателя, вкладками его разделов поиска.
+ */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun SearchScreen(initial: String) {
+fun SearchScreen(initial: String, serviceId: String? = null) {
     val p = pal
     var query by remember { mutableStateOf(initial) }
-    var filter by remember { mutableStateOf<String?>(null) }
+    var filter by remember { mutableStateOf(serviceId) }
+    var tab by remember { mutableStateOf<String?>(null) }                       // nodeId раздела поиска сервиса
     var sections by remember { mutableStateOf<List<SearchSection>>(emptyList()) }
+    var refs by remember { mutableStateOf<List<melos.search.Reference.Ref>>(emptyList()) }     // эталон из каталогов лейблов
+    var extra by remember { mutableStateOf<List<SearchSection>>(emptyList()) }                // поиск «исполнитель + название»
+    var measured by remember { mutableStateOf(0) }                                             // сколько треков VK уже измерено
     val services by Services.all.collectAsState()
     Services.revision.collectAsState().value
-    val searchable = services.filter { searchRoots(it).isNotEmpty() }
+    val scoped = serviceId?.let { id -> services.firstOrNull { it.id == id } }
+    // общий поиск ищет и в скачанном/локальных файлах («На этом компьютере») — он работает без интернета;
+    // без сети локал идёт первым, чтобы музыка находилась офлайн
+    melos.host.NetStatus.recheck()
+    val all = if (serviceId != null) listOfNotNull(scoped) else services.sortedBy { if (melos.host.NetStatus.offline && it.id == "local") 0 else 1 }
+    val searchable = all.filter { searchRoots(it).isNotEmpty() }
+    val tabs = scoped?.let(::searchRoots).orEmpty()
+    val curTab = tabs.firstOrNull { it.nodeId == tab } ?: tabs.firstOrNull()
     val focus = remember { FocusRequester() }
     val scope = rememberCoroutineScope()
     LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
 
-    LaunchedEffect(query, filter, searchable.size) {
+    LaunchedEffect(query, filter, searchable.size, curTab?.nodeId) {
         val q = query.trim()
         if (q.length < 2) { sections = emptyList(); return@LaunchedEffect }
         delay(450)
@@ -83,33 +108,121 @@ fun SearchScreen(initial: String) {
         }
         val list = searchable.filter { filter == null || it.id == filter }.flatMap { s ->
             val roots = searchRoots(s)
-            val use = if (filter == null) roots.filter { it.nodeParameters.contentNodeType == NodeType.TRACK }.take(1).ifEmpty { roots.take(1) } +
+            val use = if (scoped != null) listOfNotNull(curTab)
+            else if (filter == null) roots.filter { it.nodeParameters.contentNodeType == NodeType.TRACK }.take(1).ifEmpty { roots.take(1) } +
                 roots.filter { it.nodeParameters.contentNodeType == NodeType.ARTIST || it.nodeParameters.contentNodeType == NodeType.ALBUM }.take(1)
             else roots
             use.mapNotNull { r -> runCatching { SearchSection(s, r, NodeContent(s.murglar.nodeResolver.specifySearchableNode(r, q))) }.getOrNull() }
-        }
+        }.sortedBy { if (it.service.id == "local") 0 else 1 }   // офлайн-треки — вверху выдачи
         sections = list
-        coroutineScope { list.map { async { it.content.more() } }.awaitAll() }
+        refs = emptyList()
+        extra = emptyList()
+        coroutineScope {
+            launch {
+                refs = melos.search.Reference.lookup(q)                          // эталон и подсказки «чья песня»
+                // ввели только название — ищем ещё и «самый популярный исполнитель + название»: так оригинал попадёт в выдачу
+                val author = if (scoped == null && filter == null) melos.search.TrackMatch.likelyAuthor(q, refs) else null
+                if (author != null) {
+                    val more = list.filter { it.root.nodeParameters.contentNodeType == NodeType.TRACK }.mapNotNull { sec ->
+                        runCatching { SearchSection(sec.service, sec.root, NodeContent(sec.service.murglar.nodeResolver.specifySearchableNode(sec.root, "$author $q"))) }.getOrNull()
+                    }
+                    extra = more
+                    more.map { async { it.content.more() } }.awaitAll()
+                }
+            }
+            list.map { async { it.content.more() } }.awaitAll()
+        }
+    }
+
+    // «Все»: один трек со всех площадок — одной строкой, в лучшем качестве; подделки и чужие версии — вниз
+    val everywhere = scoped == null && filter == null
+    val trackSecs = sections.filter { it.root.nodeParameters.contentNodeType == NodeType.TRACK }
+    val merged = if (!everywhere) emptyList() else remember(query, (trackSecs + extra).map { it.content.items.size }, refs, measured) {
+        melos.search.TrackMatch.group(query, (trackSecs + extra).flatMap { it.content.tracks }.distinctBy { it.mediaId }, refs)
+    }
+    // VK качество не сообщает: меряем файлы у верхних строк (по 6 сразу), строки пересчитываются по мере замеров
+    val vk = (Services.byId("vk")?.murglar as? melos.builtin.vk.VkMurglar)
+    val toMeasure = merged.take(15).flatMap { g -> g.versions.filter { it.serviceId == "vk" && vk?.measuredKbps(it.track.id) == null } }
+        .mapNotNull { it.track as? melos.builtin.FTrack }
+    LaunchedEffect(toMeasure.map { it.id }) {
+        if (vk == null || toMeasure.isEmpty()) return@LaunchedEffect
+        val gate = kotlinx.coroutines.sync.Semaphore(6)
+        coroutineScope { toMeasure.forEach { t -> launch(kotlinx.coroutines.Dispatchers.IO) { gate.acquire(); try { vk.measure(t) } finally { gate.release() }; measured++ } } }
+    }
+    var showAll by remember(query) { mutableStateOf(false) }
+    // самого популярного трека из каталогов нет в выдаче — догружаем ещё страницу с каждой площадки, потом честно пишем
+    val missing = if (!everywhere || refs.isEmpty()) null else remember(merged, refs) { melos.search.TrackMatch.missingOriginal(query, refs, merged) }
+    var dug by remember(query) { mutableStateOf(false) }
+    LaunchedEffect(missing != null, trackSecs.all { !it.content.loading }) {
+        if (missing == null || dug || trackSecs.any { it.content.loading }) return@LaunchedEffect
+        dug = true
+        coroutineScope { (trackSecs + extra).filter { !it.content.end }.map { async { it.content.more() } }.awaitAll() }
     }
 
     ScrollList(Modifier.fillMaxSize()) {
         item {
             Column(Modifier.fillMaxWidth().padding(bottom = 10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (scoped != null) Txt("Поиск · ${scoped.name}", style = T.h1)
                 Input(query, { query = it; BrainBus.typed() }, Modifier.fillMaxWidth().focusRequester(focus),
-                    placeholder = "Трек, альбом, исполнитель или ссылка из сервиса", leading = Ic.search)
-                if (searchable.size > 1) Seg(listOf<Pair<String?, String>>(null to "Все") + searchable.map { it.id to it.name }, filter, { filter = it }, small = true)
+                    placeholder = if (scoped != null) "Искать в ${scoped.name}" else "Трек, альбом, исполнитель или ссылка из сервиса", leading = Ic.search)
+                if (scoped != null) { if (tabs.size > 1) Seg(tabs.map { it.nodeId to tabLabel(it) }, curTab?.nodeId, { tab = it }, small = true) }
+                else if (searchable.size > 1) Seg(listOf<Pair<String?, String>>(null to "Все") + searchable.map { it.id to it.name }, filter, { filter = it }, small = true)
+                // ввели только название — «чья песня?»: выбор исполнителя уточняет запрос, подделок меньше
+                val authors = remember(query, refs) { melos.search.TrackMatch.authors(query, refs) }
+                if (authors.size > 1) Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Txt("Чья песня «${query.trim()}»?", color = p.muted, style = T.small)
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        authors.forEach { (name, picture) -> AuthorChip(name, picture) { query = "$name ${query.trim()}" } }
+                    }
+                }
             }
         }
         if (query.trim().length < 2) item {
             Box(Modifier.fillMaxWidth().padding(top = 40.dp), contentAlignment = Alignment.Center) {
-                Empty(if (searchable.isEmpty()) "Ни один сервис пока не умеет искать — войдите в аккаунт в настройках или добавьте плагин."
-                    else "Ищем сразу в ${searchable.joinToString(", ") { it.name }}. Ссылку на трек или альбом можно просто вставить.")
+                Empty(when {
+                    scoped != null && searchable.isEmpty() -> "Чтобы искать в ${scoped.name}, войдите в аккаунт."
+                    scoped != null -> "Ищем только в ${scoped.name}. Искать сразу везде — «Поиск» в меню Melos."
+                    searchable.isEmpty() -> "Ни один сервис пока не умеет искать — войдите в аккаунт в настройках или добавьте плагин."
+                    else -> "Ищем сразу в ${searchable.joinToString(", ") { it.name }}. Ссылку на трек или альбом можно просто вставить."
+                })
+            }
+        }
+        if (everywhere && query.trim().length >= 2 && trackSecs.isNotEmpty()) {
+            item(key = "merged-h") {
+                Row2(Modifier.padding(bottom = 6.dp)) {
+                    Cap("Треки"); Txt("со всех площадок — играет версия в лучшем качестве", color = p.muted, style = T.small)
+                }
+                if (missing != null && dug && trackSecs.none { it.content.loading })
+                    Txt("Оригинал «${missing.artists.joinToString(", ")} — ${missing.title}» (${fmt(missing.durationMs)}) на ваших площадках не нашёлся — ниже похожие версии",
+                        Modifier.padding(start = 8.dp, bottom = 6.dp), p.warn, T.small, maxLines = 2)
+            }
+            val shown = if (showAll) merged else merged.take(12)
+            val queue = merged.map { it.best.track }
+            shown.forEachIndexed { i, g ->
+                item(key = "m${g.best.track.mediaId}") {
+                    TrackRow(g.best.track, i, { Player.playList(queue, i, "Поиск: $query") }, Modifier.enter(i, g.best.track.mediaId),
+                        trailing = { MatchBadge(g) })
+                }
+            }
+            item(key = "merged-f") {
+                when {
+                    merged.isEmpty() && trackSecs.any { it.content.loading } -> Txt("Ищу на всех площадках…", Modifier.padding(8.dp), p.muted, T.small)
+                    merged.isEmpty() -> Txt("Ничего не нашлось", Modifier.padding(8.dp), p.muted, T.small)
+                    !showAll && merged.size > 12 -> Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        Pill("Ещё ${merged.size - 12}", icon = Ic.plus) { showAll = true }
+                    }
+                }
+                trackSecs.filter { it.content.error != null }.forEach { s ->
+                    Txt("${s.service.name}: ${s.content.error}", Modifier.padding(horizontal = 8.dp, vertical = 2.dp), p.critical, T.small, maxLines = 2)
+                }
             }
         }
         sections.forEachIndexed { si, sec ->
-            item(key = "h${sec.service.id}/${sec.root.nodeId}") {
-                Row2(Modifier.padding(top = if (si == 0) 0.dp else 18.dp, bottom = 6.dp)) {
-                    Cap(sec.service.name); Txt(sec.root.nodeName.substringBefore(':'), color = p.muted, style = T.small)
+            // в «Все» треки уже собраны выше — здесь только исполнители и альбомы площадок
+            if (everywhere && sec.root.nodeParameters.contentNodeType == NodeType.TRACK) return@forEachIndexed
+            if (scoped == null) item(key = "h${sec.service.id}/${sec.root.nodeId}") {
+                Row2(Modifier.padding(top = if (si == 0 && !everywhere) 0.dp else 18.dp, bottom = 6.dp)) {
+                    ServiceLogo(sec.service.id, 16.dp); Cap(sec.service.name); Txt(tabLabel(sec.root), color = p.muted, style = T.small)
                     Spacer(Modifier.weight(1f))
                     if (sec.content.items.isNotEmpty()) Pill("Все результаты", icon = Ic.right) { Nav.go(Screen.Open(sec.content.node)) }
                 }
@@ -143,13 +256,41 @@ fun SearchScreen(initial: String) {
     }
 }
 
+/** Исполнитель в подсказке «чья песня?»: фото и имя. */
+@Composable
+private fun AuthorChip(name: String, picture: String?, onClick: () -> Unit) {
+    val p = pal
+    Row(Modifier.clip(R.pill).background(p.chip).border(1.dp, p.bd, R.pill).lux(onClick, R.pill, bloom = false).padding(start = 4.dp, end = 12.dp, top = 4.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Cover(picture, 24.dp, round = true, fallback = Ic.user)
+        Txt(name, style = T.small, maxLines = 1)
+    }
+}
+
+/** Качество версии, которая заиграет, и логотипы площадок, где этот трек есть (её — ярче). */
+@Composable
+private fun MatchBadge(g: melos.search.TrackMatch.Group) {
+    val p = pal
+    Row2(gap = 6.dp) {
+        // совпал с эталоном из каталогов лейблов (Deezer, iTunes): исполнитель, название и длительность — те самые
+        if (g.original) Row2(gap = 3.dp) { Icon(Ic.check, p.ok, size = 12.dp); Txt("оригинал", color = p.ok, style = T.small) }
+        Txt(g.best.label, color = if (g.best.kbps >= 1411) p.acc else p.muted, style = T.monoSmall)
+        g.services.forEach { id ->
+            ServiceLogo(id, 14.dp, Modifier.alpha(if (id == g.best.serviceId) 1f else .45f))
+        }
+    }
+}
+
 // Главная. Есть трек: мозг держит обложку точками в ядре, рядом — крупное название, большой транспорт,
 // действия, спектр из точек и «Далее». Широкое окно — две колонки, узкое — столбик. Нет трека — мозг и недавнее.
 @Composable
 fun HomeScreen() {
     val current by Player.current.collectAsState()
     Services.revision.collectAsState().value
-    if (current == null) IdleHome() else NowPlayingHome()
+    // переход «пустая → играет» кроссфейдом: мозг вырастает из спящего состояния, а не выскакивает рывком
+    androidx.compose.animation.Crossfade(current == null, animationSpec = androidx.compose.animation.core.tween(700, easing = EaseLux), label = "home") { idle ->
+        if (idle) IdleHome() else NowPlayingHome()
+    }
 }
 
 // Играет трек: в центре только большой мозг — всё о треке уже есть в нижнем плеере.
@@ -194,6 +335,7 @@ private fun IdleHome() {
     val history by Library.history.items.collectAsState()
     val services by Services.all.collectAsState()
     val scope = rememberCoroutineScope()
+    var vlc by remember { mutableStateOf(Player.available) }
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val many = maxWidth > 900.dp
         Column(Modifier.fillMaxSize()) {
@@ -203,6 +345,21 @@ private fun IdleHome() {
         Column(Modifier.fillMaxWidth().padding(horizontal = 28.dp, vertical = 20.dp),
             horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Txt("Melos", style = T.display)
+            if (!vlc) {
+                // чаще всего на Windows: VLC не установлен или 32-битный — без него плеер молчит
+                Card(Modifier.widthIn(max = 520.dp), color = p.card2, pad = 16.dp) {
+                    Txt("Melos не нашёл VLC", style = T.h2)
+                    Txt("Для звука нужен VLC 3${if (melos.core.Paths.isWindows) ", обязательно 64-битный" else ""}. " +
+                        "Если он стоит — Melos найдёт его сам; если нет — установите по кнопке ниже. Перезапускать Melos не придётся.",
+                        Modifier.padding(top = 4.dp), p.muted, T.small, maxLines = 3)
+                    Row2(gap = 8.dp, modifier = Modifier.padding(top = 12.dp)) {
+                        Btn("Найти на ПК", icon = Ic.refresh, onClick = { vlc = Player.recheckVlc() })
+                        Btn("Установить VLC", icon = Ic.download, onClick = {
+                            melos.core.Browse.url(melos.core.Paths.vlcDownloadUrl)
+                        })
+                    }
+                }
+            }
             // один путь: разделы сервисов — только в меню слева; здесь — продолжить с того, что слушали
             Txt("Выберите сервис слева: его меню — как на сайте", color = p.txt.copy(alpha = .8f), style = T.h2.copy(textAlign = TextAlign.Center), maxLines = 2)
             Row2(gap = 8.dp) {

@@ -1,9 +1,12 @@
 package melos
 
+import kotlinx.coroutines.launch
+
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.window.WindowDraggableArea
 import androidx.compose.ui.Modifier
 import melos.ui.globalKey
@@ -22,7 +25,15 @@ import melos.ui.Screen
 import java.awt.Dimension
 
 fun main() {
-    System.setProperty("skiko.renderApi", System.getProperty("skiko.renderApi") ?: if (Paths.isMac) "METAL" else "OPENGL")
+    // Windows — DIRECT3D: OPENGL на старых драйверах Intel и в RDP дарит белое окно
+    System.setProperty("skiko.renderApi", System.getProperty("skiko.renderApi")
+        ?: when { Paths.isMac -> "METAL"; Paths.isWindows -> "DIRECT3D"; else -> "OPENGL" })
+    melos.core.Browse.url = { url -> runCatching { java.awt.Desktop.getDesktop().browse(java.net.URI(url)) } }
+    melos.core.Browse.dir = { dir -> runCatching { java.awt.Desktop.getDesktop().open(dir) } }
+    melos.core.Browse.pickDir = { start, onPick ->
+        val ch = javax.swing.JFileChooser(start).apply { fileSelectionMode = javax.swing.JFileChooser.DIRECTORIES_ONLY; dialogTitle = "Куда сохранить" }
+        if (ch.showOpenDialog(null) == javax.swing.JFileChooser.APPROVE_OPTION) onPick(ch.selectedFile)
+    }
     Thread.setDefaultUncaughtExceptionHandler { t, e -> Log.e("Crash", "thread ${t.name}", e) }
     Services.load()
     Player.init()
@@ -43,11 +54,26 @@ fun main() {
             Log.i("WebTest", "finished=$ok token=$got")
         }.start()
     }
+    Thread { runCatching { melos.host.Chromium.cleanup() } }.start()   // окна входа, оставшиеся от прошлого запуска
+    System.getenv("MELOS_SC_CODE")?.let { code -> Thread {          // отладка: обмен кода SoundCloud (адрес возврата)
+        Thread.sleep(3000)
+        val r = Services.byId("sc")?.murglar?.loginResolver ?: return@Thread
+        kotlinx.coroutines.runBlocking {
+            runCatching { r.credentialsLogin("token", mapOf("token" to "https://soundcloud.com/signin/callback?code=$code&state=x")) }
+                .onFailure { melos.host.Log.e("Login", "debug exchange", it) }
+        }
+    }.start() }
     System.getenv("MELOS_LOGIN")?.let { id ->                  // отладка: сразу открыть окно входа сервиса
         Thread {
             Thread.sleep(2500)
             val r = Services.byId(id)?.murglar?.loginResolver ?: return@Thread
-            r.webLoginVariants.firstOrNull()?.let { v -> kotlinx.coroutines.runBlocking { runCatching { r.webLogin(v.id, melos.host.EmbeddedWebView) } } }
+            val want = System.getenv("MELOS_LOGIN_VARIANT")
+            (r.webLoginVariants.firstOrNull { it.id == want } ?: r.webLoginVariants.firstOrNull())?.let { v ->
+                // как кнопка в интерфейсе — из потока интерфейса (Swing)
+                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
+                    runCatching { r.webLogin(v.id, melos.host.EmbeddedWebView) }.onFailure { melos.host.Log.e("Login", "debug ${v.id}", it) }
+                }
+            }
         }.start()
     }
     if (System.getenv("MELOS_AUDIOBENCH") == "1") Thread { Thread.sleep(1500); melos.player.AudioBench.run() }.start()
@@ -95,8 +121,21 @@ fun main() {
         "lyrics" -> Nav.side = melos.ui.Side.LYRICS
         "queue" -> Nav.side = melos.ui.Side.QUEUE
         "library" -> Nav.go(melos.ui.Screen.Favorites)
-        "login:sc", "login:ynd" -> Thread { Thread.sleep(3000); Nav.loginFor = open.removePrefix("login:"); Nav.sheet = melos.ui.Sheet.SETTINGS }.start()
+        "login:sc", "login:ynd", "login:vk" -> Thread { Thread.sleep(3000); Nav.loginFor = open.removePrefix("login:"); Nav.sheet = melos.ui.Sheet.SETTINGS }.start()
         else -> if (open.startsWith("search:")) Nav.go(Screen.Search(open.removePrefix("search:")))
+            else if (open.startsWith("ssearch:")) open.removePrefix("ssearch:").split(':', limit = 2).let { (sid, q) -> Nav.go(Screen.Search(q, sid)) }
+            else if (open.startsWith("track:")) Thread {               // track:<сервис>:<запрос> — страница первого найденного трека
+                Thread.sleep(2500)
+                val (sid, q) = open.removePrefix("track:").split(':', limit = 2)
+                val r = Services.byId(sid)?.murglar?.nodeResolver ?: return@Thread
+                kotlinx.coroutines.runBlocking {
+                    runCatching {
+                        val root = r.getRootNodes(true).first { it.nodeParameters.isSearchable }
+                        val node = r.specifySearchableNode(root, q)
+                        r.getNodeContent(node.nodePath, 0).filterIsInstance<com.badmanners.murglar.lib.core.model.track.BaseTrack>().first()
+                    }.onSuccess { Nav.go(Screen.Track(it)) }.onFailure { melos.host.Log.e("Debug", "track", it) }
+                }
+            }.start()
             else if (open.startsWith("root:")) Thread {
                 Thread.sleep(1500)
                 val (sid, rid) = open.removePrefix("root:").split('/')
@@ -114,6 +153,11 @@ fun main() {
             val mac = Paths.isMac
             LaunchedOnce {
                 window.minimumSize = Dimension(980, 640)
+                if (!mac) runCatching {                                 // иконка окна и таскбара (на маке — из бандла)
+                    val icon = java.awt.Toolkit.getDefaultToolkit().getImage(javaClass.getResource("/melos/icon.png"))
+                    java.awt.Taskbar.getTaskbar().setIconImage(icon)     // таскбар Windows/Linux
+                    window.iconImage = icon
+                }.onFailure { Log.w("Window", "иконка: ${it.message}") }
                 if (mac) {
                     window.rootPane.putClientProperty("apple.awt.fullWindowContent", true)
                     window.rootPane.putClientProperty("apple.awt.transparentTitleBar", true)
@@ -121,8 +165,10 @@ fun main() {
                 }
             }
             Box(Modifier.fillMaxSize()) {
-                App(topInset = if (mac) 22 else 0)
-                if (mac) WindowDraggableArea(Modifier.fillMaxWidth().height(28.dp)) { Box(Modifier.fillMaxSize()) }   // за эту полосу окно таскается
+                // сверху полоса со стрелками «назад / вперёд»; на маке она же — за кнопками окна, на Windows — под заголовком
+                App(topInset = 22)
+                // за эту полосу окно таскается; слева — кнопки окна и стрелки, их не перекрываем
+                if (mac) WindowDraggableArea(Modifier.padding(start = 150.dp).fillMaxWidth().height(28.dp)) { Box(Modifier.fillMaxSize()) }
             }
         }
     }
@@ -131,7 +177,7 @@ fun main() {
 @androidx.compose.runtime.Composable
 private fun LaunchedOnce(block: () -> Unit) = androidx.compose.runtime.LaunchedEffect(Unit) { block() }
 
-// Для отладки: MELOS_PLAY="sc:запрос" или "radio:запрос" — найти и сразу включить первый результат.
+// Для отладки: MELOS_PLAY="sc:запрос" — найти и сразу включить первый результат.
 private fun demoPlay(spec: String) = Thread {
     runCatching {
         Thread.sleep(2500)

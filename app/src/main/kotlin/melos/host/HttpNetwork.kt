@@ -139,6 +139,8 @@ object HttpNetwork : NetworkMiddleware {
     override fun addCookie(cookie: HttpCookie) {
         val host = cookie.domain.trimStart('.')
         if (cookie.path == null) cookie.path = "/"
+        // HttpCookie из кода по умолчанию версии 1 — Java шлёт её как name="value"; сайты так куку не узнают
+        cookie.version = 0
         cookies.cookieStore.add(URI("https://$host/"), cookie)
         persist()
     }
@@ -175,7 +177,7 @@ object HttpNetwork : NetworkMiddleware {
             val left = if (s.maxAge < 0) -1 else s.maxAge - (now - s.savedAt) / 1000
             if (s.maxAge >= 0 && left <= 0) return@forEach
             val c = HttpCookie(s.name, s.value).apply {
-                domain = s.domain; path = s.path ?: "/"; maxAge = left; secure = s.secure; isHttpOnly = s.httpOnly
+                domain = s.domain; path = s.path ?: "/"; maxAge = left; secure = s.secure; isHttpOnly = s.httpOnly; version = 0
             }
             manager.cookieStore.add(URI("https://${s.domain!!.trimStart('.')}/"), c)
         }

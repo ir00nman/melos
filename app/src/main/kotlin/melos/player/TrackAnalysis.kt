@@ -146,7 +146,7 @@ object TrackAnalysis {
     // ---- декод: беззвучный VLC перегоняет поток в WAV 22 кГц моно (файлы — быстрее реального времени) ----
     private suspend fun decode(mrl: String): ShortArray? {
         val out = File.createTempFile("melos-analysis", ".wav", Paths.cache)
-        val player: MediaPlayer = VlcEngine.factory.mediaPlayers().newMediaPlayer()
+        val player: MediaPlayer = VlcEngine.nativeFactory.mediaPlayers().newMediaPlayer()
         val done = kotlinx.coroutines.CompletableDeferred<Boolean>()
         player.events().addMediaPlayerEventListener(object : MediaPlayerEventAdapter() {
             override fun finished(mp: MediaPlayer) { done.complete(true) }
@@ -235,21 +235,26 @@ object TrackAnalysis {
             return out
         }
         val env = detrend(onset); val lowEnv = detrend(low)
-        val drive = FloatArray(frames) { env[it] * 0.6f + lowEnv[it] * 0.4f }
+        // бит — это прежде всего бочка: бас в «драйве» весомее общего онсета (вокал/синты сбивают)
+        val drive = FloatArray(frames) { env[it] * 0.3f + lowEnv[it] * 0.7f }
 
-        // темп: автокорреляция огибающей на лагах 70–180 BPM, вес — лог-нормаль вокруг 120 BPM
+        // темп: автокорреляция огибающей на лагах 70–180 BPM, вес — лог-нормаль вокруг 120 BPM.
+        // Октавная дизамбигуация: у электронщины (Linkin Park и т.п.) ACF часто сильнее на кратном
+        // лаге (полтора/два бита) — сетка тогда плывёт мимо реальных ударов. Голос баса весомее: бит —
+        // это бочка, поэтому кандидатов сравниваем по автокорреляции НИЗА, а общего онсета — лишь слегка.
         val minLag = (60_000 / 180 / HOP_MS).toInt(); val maxLag = (60_000 / 70 / HOP_MS).toInt()
         var bestLag = minLag; var bestScore = -1f
-        val acf = FloatArray(maxLag + 2)
+        val acf = FloatArray(maxLag + 2); val acfLow = FloatArray(maxLag + 2)
         for (lag in minLag..maxLag + 1) {
-            var s = 0f; var i = lag
-            while (i < frames) { s += drive[i] * drive[i - lag]; i++ }
+            var s = 0f; var sl = 0f; var i = lag
+            while (i < frames) { s += drive[i] * drive[i - lag]; sl += lowEnv[i] * lowEnv[i - lag]; i++ }
             acf[lag] = s / (frames - lag)
+            acfLow[lag] = sl / (frames - lag)
         }
         for (lag in minLag..maxLag) {
             val bpm = 60_000 / (lag * HOP_MS)
             val w = exp(-0.5 * (ln(bpm / 120.0) / ln(2.0) / 0.9).let { it * it }).toFloat()
-            val score = acf[lag] * w
+            val score = (acf[lag] * 0.35f + acfLow[lag] * 0.65f) * w
             if (score > bestScore) { bestScore = score; bestLag = lag }
         }
         // уточнение лага параболой
@@ -259,9 +264,10 @@ object TrackAnalysis {
         val bpm = (60_000 / (period * HOP_MS)).toFloat()
 
         // сетка долей: динамическое программирование (Ellis 2007) — счёт = онсет + лучший предыдущий
-        // с штрафом за отклонение интервала от периода
+        // с штрафом за отклонение интервала от периода. Штраф крутой (α=260): иначе сетка прилипает
+        // к вокальным/синтовым онсетам между долями и уползает от бита — те самые «мимо басов»
         val score = FloatArray(frames); val back = IntArray(frames) { -1 }
-        val alpha = 100f
+        val alpha = 260f
         for (t in 0 until frames) {
             var best = 0f; var arg = -1
             val from = max(0, t - (period * 2).toInt()); val to = t - (period / 2).toInt()
@@ -271,7 +277,7 @@ object TrackAnalysis {
                 val v = score[pIdx] - alpha * r * r
                 if (arg < 0 || v > best) { best = v; arg = pIdx }
             }
-            score[t] = drive[t] + (if (arg >= 0) max(0f, best) else 0f)
+            score[t] = lowEnv[t] * 1.4f + env[t] * 0.6f + (if (arg >= 0) max(0f, best) else 0f)
             back[t] = if (arg >= 0 && best > 0f) arg else -1
         }
         var end = frames - 1
@@ -311,7 +317,7 @@ object TrackAnalysis {
         var i = 4
         while (i < bars.size - 4) {
             val before = meanE(bars[i - 4], bars[i]); val after = meanE(bars[i], bars[i + 4])
-            if (after > 0.62f && after - before > 0.22f && (drops.isEmpty() || bars[i] - drops.last() > 30_000)) {
+            if (after > 0.55f && after - before > 0.15f && (drops.isEmpty() || bars[i] - drops.last() > 20_000)) {
                 drops += bars[i]
                 // подводка: назад от дропа, пока энергия не ниже ~ее минимума перед дропом (до 8 тактов)
                 var b = i - 1; while (b > i - 8 && b > 0 && meanE(bars[b - 1], bars[b]) <= meanE(bars[b], bars[b + 1]) + 0.08f) b--

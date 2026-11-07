@@ -83,6 +83,23 @@ fun BurstLayer() {
     }
 }
 
+// Свечение обложки: два очень мягких пятна цвета трека в углах окна — фон дышит вместе с музыкой,
+// но не мешает контенту (появляется и уходит медленно, ~1,2 с).
+@Composable
+fun CoverGlow(color: Color?) {
+    val a by androidx.compose.animation.core.animateFloatAsState(
+        if (color != null && Look.motion) 1f else 0f, androidx.compose.animation.core.tween(1200, easing = EaseLux))
+    if (a <= 0.01f) return
+    val c = color ?: return
+    Canvas(Modifier.fillMaxSize()) {
+        val R = max(size.width, size.height) * 0.9f
+        drawCircle(Brush.radialGradient(listOf(c.copy(alpha = .13f * a), Color.Transparent), Offset(size.width * .86f, size.height * .1f), R),
+            R, Offset(size.width * .86f, size.height * .1f))
+        drawCircle(Brush.radialGradient(listOf(c.copy(alpha = .10f * a), Color.Transparent), Offset(size.width * .08f, size.height * .95f), R * .8f),
+            R * .8f, Offset(size.width * .08f, size.height * .95f))
+    }
+}
+
 @Composable
 fun ToastLayer(modifier: Modifier = Modifier) {
     val p = pal

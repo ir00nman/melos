@@ -50,8 +50,20 @@ class SnapList(name: String, private val limit: Int) {
 object Library {
     val favorites = SnapList("favorites", 5000)
     val history = SnapList("history", 300)
+    /** «Не нравится»: такие треки пропускаются в волнах и при переходе по очереди. */
+    val dislikes = SnapList("dislikes", 5000)
 
     fun isFavorite(mediaId: String) = mediaId in favorites
+
+    /** Тот же трек на любой площадке: по исполнителям и названию (дизлайк в VK — и в Яндексе, и в SoundCloud). */
+    private fun songKey(artists: String, title: String) = melos.search.TrackMatch.norm(artists) + "|" + melos.search.TrackMatch.norm(title)
+
+    fun isDisliked(track: BaseTrack): Boolean {
+        val list = dislikes.items.value
+        if (list.isEmpty()) return false
+        val key = songKey(track.artists, track.fullTitle)
+        return list.any { it.mediaId == track.mediaId || songKey(it.artists, it.title) == key }
+    }
 
     /** Слепки → живые треки, по сервисам, в исходном порядке. Недоступные молча пропускаются. */
     suspend fun resolve(snaps: List<Snap>): List<BaseTrack> {

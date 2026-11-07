@@ -9,3 +9,10 @@ local.properties
 Chrome crawler/
 # плагины Murglar кладутся сюда при разработке — это чужие jar
 plugins/*.jar
+
+# портативная сборка под Windows (packaging/windows/build.sh)
+dist/
+
+# сессионные данные ZCode и краш-логи JVM
+.zcode/
+hs_err_pid*.log

@@ -1,6 +1,9 @@
 package melos.ui
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.runtime.Composable
@@ -52,7 +55,11 @@ fun Brain(modifier: Modifier = Modifier, interactive: Boolean = true, center: Of
     var frame by remember { mutableLongStateOf(0L) }
     val p = pal
     LaunchedEffect(Unit) { while (true) withFrameNanos { frame = it } }
+    // появление: мягкий рост и проявление (после анимации входа экрана не должно быть рывка)
+    val appear = remember { Animatable(if (Look.motion) 0f else 1f) }
+    LaunchedEffect(Unit) { if (appear.value < 1f) appear.animateTo(1f, tween(650, easing = EaseLux)) }
     Canvas(modifier
+        .graphicsLayer { alpha = appear.value; scaleX = 0.96f + 0.04f * appear.value; scaleY = scaleX }
         .clipToBounds()                                                  // искры и кольца не вылетают на сайдбар и плеер
         .onGloballyPositioned { Net.origin = it.positionInWindow() }
         .then(if (!interactive) Modifier else Modifier.pointerInput(Unit) {
@@ -154,7 +161,6 @@ private fun DrawScope.render(p: Palette, center: Offset, scaleK: Float) {
     //   бас — облако ядра разбухает; дроп — «большой взрыв»: сеть разлетается и пружинит обратно,
     //   камера трясётся, наклон переворачивается, цвета вспыхивают в белый; пока дроп — всё жёстче.
     val punch = if (playing && motion) Pulse.punch(now) * (1 + 0.8f * drop) else 0f
-    val hit = if (playing && motion) Pulse.hit(now) else 0f
     val kickT = (now - Pulse.kickAt) / 1000f
     val kickFront = kickT / 0.32f * 1.4f
     val energy = if (playing) Pulse.energy.coerceIn(0f, 1f) else 0f
@@ -191,10 +197,6 @@ private fun DrawScope.render(p: Palette, center: Offset, scaleK: Float) {
     val bangFlash = if (n.dropKickAt > 0 && bangT in 0f..1f && motion) exp(-bangT * 4f) else 0f
     val flip = n.flipFrom + (n.flipTo - n.flipFrom) * ease(((now - n.dropKickAt) / 650f))
     // глитч: на сильный хэт (и на любой — во время дропа) три горизонтальные полосы сетки сдвигаются
-    if (playing && motion && Pulse.hatAt != n.lastHatAt && drop > 0.4f) {
-        n.lastHatAt = Pulse.hatAt; n.glitchAt = now
-        for (k in 0..2) { n.glitchRows[k] = Math.random().toFloat(); n.glitchShift[k] = ((Math.random() - 0.5) * 2 * (5 + 10 * drop)).toFloat() }
-    }
     // пыль: во время дропа из ядра непрерывно бьёт поток точек
     if (playing && motion && drop > 0.35f) {
         val rate = (drop * 3).toInt() + 1
@@ -388,18 +390,18 @@ private fun DrawScope.render(p: Palette, center: Offset, scaleK: Float) {
         val px = qx; val py = qy; val pd = qd; val pkk = qk
         val fr = if (nd.fireAt > 0) (now - nd.fireAt) / 320f else 9f
         val band = if (playing) bands[nd.band] else 0f
-        val r = (nd.size * 1.15f + sin(time * 1.6f + nd.beat) * 0.35f + (if (fr in 0f..1f) 0.9f * (1 - fr) else 0f) + band * (0.5f + 1.2f * drop)) * pkk
+        val r = (nd.size * 0.62f + sin(time * 1.6f + nd.beat) * 0.2f + (if (fr in 0f..1f) 0.5f * (1 - fr) else 0f) + band * (0.3f + 0.7f * drop)) * pkk
         val g0x = floor(px / cell).toInt(); val g0y = floor(py / cell).toInt(); val ri = ceil(r).toInt()
         var nodeV = 1.05f
         if (rwFront >= 0) { if (nd.appear > rwFront) nodeV = 0.6f; if (nd.appear in prevFront..rwFront) nd.fireAt = now }
         if (mBlink > 0.05f) { val b = (n.blinkClock - nd.order) % 1; if ((b + 1) % 1 < 0.07f) nodeV = 1.05f + 0.6f * mBlink }
         if (fr >= 0 && fr < 1) {
             nodeV = max(nodeV, if (fr < 0.45f) 1.75f else 1.75f - 0.6f * (fr - 0.45f) / 0.55f)
-            halos += floatArrayOf(px, py, cell * (7 + nd.size * 3) * pkk, 1.2f * (1 - fr))
+            halos += floatArrayOf(px, py, cell * (5 + nd.size * 2) * pkk, 1.2f * (1 - fr))
         }
         val pkn = (now - n.pokeAt) / 350f
         if (pkn in 0f..1f && cellHash(nd.idx * 3.1f, n.pokeSeed.toFloat()) < 0.3f) nodeV = max(nodeV, 1.65f - 0.5f * pkn)
-        for (f in fronts) if (abs(nd.r - f[0]) < 0.09f) { nodeV = max(nodeV, 1.75f); halos += floatArrayOf(px, py, cell * (6 + nd.size * 3) * pkk, f[1]) }
+        for (f in fronts) if (abs(nd.r - f[0]) < 0.09f) { nodeV = max(nodeV, 1.75f); halos += floatArrayOf(px, py, cell * (4 + nd.size * 2) * pkk, f[1]) }
         for (dy in -ri..ri) for (dx in -ri..ri) {
             val dd = (dx * dx + dy * dy).toFloat()
             if (dd > r * r) continue
@@ -538,6 +540,7 @@ private fun DrawScope.render(p: Palette, center: Offset, scaleK: Float) {
         if (ff >= 1) n.flash = null
         else base = lerpC(base, c, (if (ff < 0.2f) ff / 0.2f else 1 - (ff - 0.2f) / 0.8f).coerceIn(0f, 1f) * 0.85f)
     }
+    // размер самой точки фигуры (не вершины: сгустки-вершины ужимаются в radius узлов, см. цикл узлов)
     val dot = max(1f, (cell * 0.72f).roundToInt().toFloat()); val dotHot = max(dot + 1, (dot * 1.35f).roundToInt().toFloat())
     val glitch = if (motion) (1 - (now - n.glitchAt) / 110f).coerceIn(0f, 1f) else 0f
     val off = floor((cell - dot) / 2) + dot / 2; val offHot = floor((cell - dotHot) / 2) + dotHot / 2
@@ -612,7 +615,8 @@ private fun DrawScope.render(p: Palette, center: Offset, scaleK: Float) {
         }
         paint.mode = PaintMode.STROKE; paint.strokeCap = PaintStrokeCap.ROUND
         // хроматический сдвиг: цветные тени точек расходятся на ударах хэта и во время дропа
-        val split = (drop * 2.5f + bangFlash * 6f + (if (drop > 0.3f) hit * 3f else 0f)) * density
+        // визуал реагирует только на низкочастотные пульсации: хэты/высокие в сдвиге не участвуют
+        val split = (drop * 2.5f + bangFlash * 6f) * density
         if (split > 0.6f) {
             for ((sign, col) in listOf(1f to p.c2, -1f to p.c3)) {
                 nc.save(); nc.translate(sign * split, 0f)

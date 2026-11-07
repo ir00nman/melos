@@ -26,7 +26,8 @@ import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.time.Duration
 
-// Скачивание с тегами, обложкой и текстом — как в Murglar. Шаблон пути настраивается.
+// Скачивание с тегами, обложкой и текстом — как в Murglar. Все треки — прямо в папку с музыкой, без подпапок,
+// «Исполнитель - Название», в лучшем качестве, какое отдаёт сервис (настройка качества потока на загрузки не влияет).
 object Downloads {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val gate = Semaphore(3)
@@ -39,10 +40,6 @@ object Downloads {
     var folder: File
         get() = Settings.store.string("downloads.folder")?.let(::File) ?: Paths.defaultDownloads
         set(v) = Settings.store.put("downloads.folder", v.path)
-
-    var template: String
-        get() = Settings.store.string("downloads.template") ?: "{artist}/{album}/{n} {title}"
-        set(v) = Settings.store.put("downloads.template", v)
 
     private fun set(id: String, s: State) { _states.value = _states.value + (id to s) }
 
@@ -71,15 +68,8 @@ object Downloads {
     private fun clean(s: String) = s.replace(Regex("""[\\/:*?"<>|\u0000-\u001f]"""), "_").trim().trimEnd('.').ifEmpty { "_" }.take(120)
 
     private fun target(track: BaseTrack, ext: String): File {
-        val rel = template
-            .replace("{artist}", clean(track.artistName ?: "Unknown"))
-            .replace("{artists}", clean(track.artists))
-            .replace("{album}", clean(track.albumName ?: "Без альбома"))
-            .replace("{n}", track.indexInAlbum?.let { "%02d".format(it) } ?: "")
-            .replace("{title}", clean(track.fullTitle))
-            .replace("{service}", clean(Services.forTrack(track)?.name ?: ""))
-            .split('/').map { it.trim() }.filter { it.isNotEmpty() }.joinToString(File.separator)
-        return File(folder, "$rel.$ext")
+        val name = listOfNotNull(track.artists.ifBlank { null }, track.fullTitle).joinToString(" - ")
+        return File(folder, "${clean(name)}.$ext")
     }
 
     private suspend fun fetch(track: BaseTrack): File {

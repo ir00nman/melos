@@ -28,7 +28,7 @@ object EmbeddedWebView : WebViewProvider {
     private val webCookies = CookieManager(null, CookiePolicy.ACCEPT_ALL)
 
     /** Кука из хранилища окна входа (после входа сайт сам её выставил). */
-    fun webCookie(domain: String, name: String): String? = webCookies.cookieStore.cookies.firstOrNull { c ->
+    fun webCookie(domain: String, name: String): String? = Chromium.cookie(domain, name) ?: webCookies.cookieStore.cookies.firstOrNull { c ->
         val d = c.domain?.trimStart('.')?.lowercase() ?: return@firstOrNull false
         c.name == name && (domain == d || domain.endsWith(".$d") || d.endsWith(".$domain"))
     }?.value?.takeIf { it.isNotBlank() }
@@ -44,10 +44,11 @@ object EmbeddedWebView : WebViewProvider {
         resolver: WebViewProvider.UrlLoadPolicyResolver,
         inspector: WebViewProvider.RequestsInspector?,
     ): Boolean {
-        // как в Murglar — на Chromium; не скачался или не поднялся — старое окно на WebKit
-        if (System.getenv("MELOS_NO_CHROMIUM") != "1" && Chromium.ensure()) {
-            runCatching { return Chromium.open(startUrl, domainsForCookiesSync, resolver) }
-                .onFailure { Log.e("WebLogin", "Chromium", it) }
+        // как в Murglar — на Chromium; его нет и не скачался — старое окно на WebKit
+        if (System.getenv("MELOS_NO_CHROMIUM") != "1") {
+            runCatching { Chromium.open(enableJS, userAgent, startUrl, domainsForCookiesSync, resolver, inspector, finishWhen) }
+                .onSuccess { ok -> if (ok != null) return ok }
+                .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it; Log.e("WebLogin", "Chromium", it); Toasts.error("Chromium не запустился: ${it.message} — открываю простое окно входа") }
         }
         val result = CompletableDeferred<Boolean>()
         SwingUtilities.invokeLater {

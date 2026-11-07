@@ -20,16 +20,13 @@ class ServicesSmokeTest {
         return r.getNodeContent(searchNode.nodePath, 0).filterIsInstance<BaseTrack>()
     }
 
-    @Test fun soundcloudAndRadio() = runBlocking {
+    @Test fun soundcloud() = runBlocking {
         if (!enabled) return@runBlocking
         Services.load()
         val sc = search("sc", "searchTracks", "daft punk")
         println("SC: ${sc.size} — ${sc.take(3).map { it.tag }}")
         assertTrue(sc.isNotEmpty())
         println("SC stream: " + Player.resolve(sc.first()).take(80))
-        val radio = search("radio", "searchStations", "jazz")
-        println("Radio: ${radio.size} — ${radio.take(3).map { it.title }}")
-        assertTrue(radio.isNotEmpty())
         println("Lyrics: " + LyricsService.find(sc.first())?.plain?.take(60))
         println("VLC found: ${VlcEngine.found} ${if (VlcEngine.found) VlcEngine.version() else ""}")
     }

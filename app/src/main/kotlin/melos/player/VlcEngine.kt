@@ -24,17 +24,45 @@ enum class Status { IDLE, OPENING, BUFFERING, PLAYING, PAUSED, ENDED, ERROR }
 class VlcEngine(private val tap: Boolean, private val silent: Boolean = false) {   // silent — тишина в устройство (диагностика)
 
     companion object {
-        val found: Boolean by lazy { runCatching { NativeDiscovery().discover() }.getOrDefault(false) }
-        val factory: MediaPlayerFactory by lazy {
+        /** Найдена ли библиотека VLC. Переопределяется без перезапуска: [rediscover] после установки VLC. */
+        var found: Boolean = false; private set
+        fun rediscover(): Boolean {
+            found = runCatching { NativeDiscovery().discover() }.getOrDefault(false)
+            return found
+        }
+
+        init { rediscover() }
+
+        /** Эквалайзер vlcj, спрятанный за [PlayerEqualizer] — Player.kt не знает про vlcj. */
+        private class VlcjEq(val native: Equalizer) : PlayerEqualizer {
+            override fun bandCount() = native.bandCount()
+            override fun setPreamp(v: Float) { native.setPreamp(v) }
+            override fun setAmps(a: FloatArray) { native.setAmps(a) }
+            override fun amps(): FloatArray = native.amps()
+            override fun preamp(): Float = native.preamp()
+        }
+
+        /** Та же поверхность, что у vlcj-фабрики, но типы — платформенные оболочки. */
+        object EqFactory {
+            fun newEqualizer(): PlayerEqualizer = VlcjEq(nativeFactory.equalizer().newEqualizer())
+            fun newEqualizer(name: String): PlayerEqualizer = VlcjEq(nativeFactory.equalizer().newEqualizer(name))
+            fun presets(): List<String> = nativeFactory.equalizer().presets()
+            fun bands(): List<Float> = nativeFactory.equalizer().bands()
+        }
+
+        /** Та же цепочка вызовов, что и у libVLC на Android: factory.equalizer().newEqualizer() */
+        val factory: EqSupport get() = EqSupport
+        object EqSupport { fun equalizer(): EqFactory = EqFactory }
+        fun preset(name: String): PlayerEqualizer = EqFactory.newEqualizer(name)
+        val presets: List<String> get() = if (found) EqFactory.presets() else emptyList()
+        val bands: List<Float> get() = if (found) EqFactory.bands() else emptyList()
+        internal val nativeFactory: MediaPlayerFactory by lazy {
             numericLocaleC()
             // MELOS_VLC_ARGS — отладка: дополнительные параметры libVLC через пробел
             val extra = System.getenv("MELOS_VLC_ARGS")?.split(' ')?.filter { it.isNotBlank() }.orEmpty()
             MediaPlayerFactory(*(listOf("--no-video", "--quiet", "--http-reconnect", "--network-caching=1500") + extra).toTypedArray())
         }
-        val presets: List<String> get() = if (found) factory.equalizer().presets() else emptyList()
-        val bands: List<Float> get() = if (found) factory.equalizer().bands() else emptyList()
-        fun preset(name: String): Equalizer = factory.equalizer().newEqualizer(name)
-        fun version(): String = runCatching { factory.application().version() }.getOrDefault("?")
+        fun version(): String = runCatching { nativeFactory.application().version() }.getOrDefault("?")
         /**
          * libVLC передаёт полосы эквалайзера строкой через snprintf("%f"), а фильтр читает её с точкой.
          * При русской локали (запуск из терминала с LANG=ru_RU) получалось "12,0000000 0,0000000 …": каждая запятая
@@ -52,7 +80,7 @@ class VlcEngine(private val tap: Boolean, private val silent: Boolean = false) {
         private const val LIMITER_DELAY = RATE / 200                 // 5 мс упреждения лимитера
     }
 
-    val player: MediaPlayer = factory.mediaPlayers().newMediaPlayer()
+    val player: MediaPlayer = nativeFactory.mediaPlayers().newMediaPlayer()
 
     private interface CLib : com.sun.jna.Library { fun setlocale(category: Int, locale: String?): String? }
 
@@ -77,7 +105,11 @@ class VlcEngine(private val tap: Boolean, private val silent: Boolean = false) {
     init {
         player.events().addMediaPlayerEventListener(object : MediaPlayerEventAdapter() {
             override fun opening(mp: MediaPlayer) { _status.value = Status.OPENING; _meta.value = null }
-            override fun buffering(mp: MediaPlayer, c: Float) { if (c < 100f && _status.value != Status.PLAYING) _status.value = Status.BUFFERING }
+            // BUFFERING — только пока грузится (OPENING); на паузе VLC тоже шлёт buffering (после seek, при долёте сети) —
+            // иначе пауза перезатиралась на BUFFERING, а из него «Плей» не работал
+            override fun buffering(mp: MediaPlayer, c: Float) {
+                if (c < 100f && _status.value !in setOf(Status.PLAYING, Status.PAUSED)) _status.value = Status.BUFFERING
+            }
             override fun playing(mp: MediaPlayer) { _status.value = Status.PLAYING }
             override fun paused(mp: MediaPlayer) { _status.value = Status.PAUSED }
             override fun stopped(mp: MediaPlayer) { if (_status.value != Status.ENDED) _status.value = Status.IDLE }
@@ -128,7 +160,9 @@ class VlcEngine(private val tap: Boolean, private val silent: Boolean = false) {
     // Тракт во float от декодера до вывода: VLC → S16 (иначе amem не отдаёт) → float → эквалайзер → громкость → лимитер → дизер → 24 (или 16) бит.
     // Нигде нет промежуточного округления до 16 бит и срезания >0 dBFS — это и делало бас грязным.
     private fun installTap() {
-        val (l, bytesPer) = listOf(24, 16).firstNotNullOfOrNull { bits ->
+        // на Windows 24-битная линия может открыться, но играть тишиной — там первым пробуем 16-битный вывод
+        val order = if (melos.core.Paths.isWindows) listOf(16, 24) else listOf(24, 16)
+        val (l, bytesPer) = order.firstNotNullOfOrNull { bits ->
             val format = AudioFormat(RATE.toFloat(), bits, CH, true, false)
             runCatching { AudioSystem.getSourceDataLine(format).apply { open(format, RATE * CH * (bits / 8) / 10) } to bits / 8 }.getOrNull()
         } ?: run { Log.e("Vlc", "Java Sound недоступен"); return }
@@ -202,7 +236,7 @@ class VlcEngine(private val tap: Boolean, private val silent: Boolean = false) {
     fun seek(ms: Long) { _time.value = ms; player.submit { player.controls().setTime(ms) } }
     fun setVolume(v: Int) = player.submit { player.audio().setVolume(v.coerceIn(0, 150)) }   // >100 — только поправка выравнивания
     fun setRate(r: Float) = player.submit { player.controls().setRate(r) }
-    fun setEqualizer(eq: Equalizer?) = player.submit { player.audio().setEqualizer(eq) }
+    fun setEqualizer(eq: PlayerEqualizer?) = player.submit { player.audio().setEqualizer((eq as? VlcjEq)?.native) }
 
     fun release() {
         runCatching { player.controls().stop() }

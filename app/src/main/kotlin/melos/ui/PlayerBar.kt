@@ -1,5 +1,6 @@
 package melos.ui
 
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -32,10 +33,15 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.onPointerEvent
@@ -72,15 +78,23 @@ fun PlayerBar(modifier: Modifier = Modifier) {
             // что играет
             Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 // от обложки расходятся волна палитры и всплеск лайка (раньше — от точки статуса в шапке)
-                Box(Modifier.onGloballyPositioned { Anchor.status = it.boundsInWindow().center }.lux({ Nav.go(Screen.Home) }, R.md, bloom = false)) {
-                    Cover(track?.smallCoverUrl ?: track?.bigCoverUrl, 64.dp, shape = R.md)
+                Box(Modifier.onGloballyPositioned { Anchor.status = it.boundsInWindow().center }.lux({ track?.let { Nav.go(Screen.Track(it)) } ?: Nav.go(Screen.Home) }, R.md, bloom = false)) {
+                    // обложка «дышит» на ударе: punch сам по себе — атака+спад, умножаем на силу кика
+                    val punchNow = Pulse.punch()
+                    Box(Modifier.graphicsLayer { translationY = -2.4f * punchNow; scaleX = 1f + 0.02f * punchNow; scaleY = 1f + 0.02f * punchNow }) {
+                        Cover(track?.smallCoverUrl ?: track?.bigCoverUrl, 64.dp, shape = R.md)
+                    }
                 }
                 Column(Modifier.weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Txt(track?.fullTitle ?: "Ничего не играет", style = T.title, modifier = Modifier.enter(0, track?.mediaId))
                     Txt(nowPlaying?.let { "♪ $it" } ?: track?.let { t -> listOfNotNull(t.artists, Services.forTrack(t)?.name).joinToString(" · ") } ?: "Выберите трек или волну",
                         color = if (nowPlaying != null) p.acc else p.muted, style = T.small, modifier = Modifier.enter(1, track?.mediaId))
                 }
-                track?.let { t -> IconBtn(if (liked) Ic.heartOn else Ic.heart, { Player.toggleLike(t); if (!liked) { BrainBus.heart(); Bursts.fire() } }, active = liked) }
+                track?.let { t -> IconBtn(if (liked) Ic.heartOn else Ic.heart, { Player.toggleLike(t); if (!liked) { BrainBus.heart(); Bursts.fire() } }, active = liked, modifier = Modifier.shake(Player.likeFailedAt)) }
+                track?.let { t ->
+                    val disliked = Library.dislikes.items.collectAsState().value.let { Library.isDisliked(t) }
+                    IconBtn(if (disliked) Ic.dislikeOn else Ic.dislike, { Player.toggleDislike(t) }, active = disliked)
+                }
             }
             Box(Modifier.weight(1.1f), contentAlignment = Alignment.Center) { Transport(big = false) }
             // справа: громкость, эквалайзер, панели; на узком окне сон и скорость уходят в «ещё»
@@ -95,6 +109,14 @@ fun PlayerBar(modifier: Modifier = Modifier) {
         }
         }
     }
+}
+
+
+// Клавиши внутри popup: Esc закрывает сам popup (а не историю навигации), остальное — глобальные хоткеи.
+private fun popupKey(onDismiss: () -> Unit) = { e: androidx.compose.ui.input.key.KeyEvent ->
+    //
+    if (e.type == androidx.compose.ui.input.key.KeyEventType.KeyDown && e.key == androidx.compose.ui.input.key.Key.Escape) { onDismiss(); true }
+    else globalKey(e)
 }
 
 // Кнопки транспорта. Большой вариант — на главной: кнопка «играть» 76 dp, вокруг неё кольцо из точек вспыхивает на бит,
@@ -154,8 +176,9 @@ private fun MoreMenu(withSleep: Boolean) {
     val steps = listOf(0.75f, 1f, 1.25f, 1.5f, 2f)
     Box {
         IconBtn(Ic.speed, { open = !open }, active = open || rate != 1f)
-        if (open) Popup(alignment = Alignment.BottomCenter, offset = IntOffset(0, -52), onDismissRequest = { open = false }, properties = androidx.compose.ui.window.PopupProperties(focusable = true), onPreviewKeyEvent = ::globalKey) {
-            Card(pad = 8.dp, color = pal.card2) {
+        if (open) Popup(alignment = Alignment.BottomCenter, offset = IntOffset(0, -52), onDismissRequest = { open = false }, properties = androidx.compose.ui.window.PopupProperties(focusable = true), onPreviewKeyEvent = popupKey({ open = false })) {
+            val pop by androidx.compose.animation.core.animateFloatAsState(if (open) 1f else 0f, tween(220, easing = EaseLux))
+            Card(pad = 8.dp, color = pal.card2, modifier = Modifier.graphicsLayer { alpha = pop; scaleX = .96f + .04f * pop; scaleY = scaleX; transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f) }) {
                 Cap("Скорость", Modifier.padding(8.dp))
                 steps.forEach { r -> MenuItem("${r}×", on = r == rate) { Player.rate.value = r } }
                 if (withSleep) {
@@ -183,6 +206,8 @@ private fun Seek(modifier: Modifier = Modifier) {
     var drag by remember { mutableStateOf<Float?>(null) }
     val frac = drag ?: if (length > 0) (time.toFloat() / length).coerceIn(0f, 1f) else 0f
     val thick by androidx.compose.animation.core.animateDpAsState(if (hover != null || drag != null) 6.dp else 4.dp, androidx.compose.animation.core.tween(160))
+    // скраббинг: над полосой — крупный таймкод места, куда тянем
+    val scrubAt = drag?.let { (it * length).toLong() }
     Row(modifier.height(26.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Txt(fmt(drag?.let { (it * length).toLong() } ?: time), Modifier.width(50.dp), p.txt.copy(alpha = .8f), T.monoSmall.copy(textAlign = androidx.compose.ui.text.style.TextAlign.End))
         Box(Modifier.weight(1f).height(26.dp)) {
@@ -216,6 +241,13 @@ private fun Seek(modifier: Modifier = Modifier) {
                     }
                 }
             }
+            scrubAt?.takeIf { length > 0 }?.let { at ->
+                Popup(alignment = Alignment.TopCenter, offset = IntOffset(0, -104)) {
+                    Box(Modifier.clip(R.lg).background(p.card2).border(1.dp, p.acc, R.lg).padding(horizontal = 16.dp, vertical = 7.dp)) {
+                        Txt(fmt(at), color = p.acc, style = T.h2.copy(fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace))
+                    }
+                }
+            }
         }
         Txt(if (live) "LIVE" else fmt(length), Modifier.width(50.dp), if (live) p.critical else p.txt.copy(alpha = .8f), T.monoSmall)
     }
@@ -234,7 +266,7 @@ private fun Volume() {
     Box {
         IconBtn(if (vol == 0) Ic.mute else Ic.volume, { open = !open }, modifier = wheel, active = open)
         if (open) Popup(alignment = Alignment.BottomCenter, offset = IntOffset(0, -56), onDismissRequest = { open = false },
-            properties = androidx.compose.ui.window.PopupProperties(focusable = true), onPreviewKeyEvent = ::globalKey) {
+            properties = androidx.compose.ui.window.PopupProperties(focusable = true), onPreviewKeyEvent = popupKey({ open = false })) {
             Column(Modifier.width(64.dp).clip(R.lg).background(p.card2).border(1.dp, p.bd, R.lg).then(wheel).padding(vertical = 12.dp),
                 horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Txt("$vol", color = p.txt, style = T.monoSmall)
@@ -269,8 +301,9 @@ private fun SleepButton() {
             IconBtn(Ic.moon, { open = !open }, active = at != null)
             at?.let { Txt(fmt(it - now), color = p.acc, style = T.monoSmall) }
         }
-        if (open) Popup(alignment = Alignment.BottomCenter, offset = IntOffset(0, -44), onDismissRequest = { open = false }, properties = androidx.compose.ui.window.PopupProperties(focusable = true), onPreviewKeyEvent = ::globalKey) {
-            Card(pad = 6.dp, color = p.card2) {
+        if (open) Popup(alignment = Alignment.BottomCenter, offset = IntOffset(0, -44), onDismissRequest = { open = false }, properties = androidx.compose.ui.window.PopupProperties(focusable = true), onPreviewKeyEvent = popupKey({ open = false })) {
+            val pop by androidx.compose.animation.core.animateFloatAsState(if (open) 1f else 0f, tween(220, easing = EaseLux))
+            Card(pad = 6.dp, color = p.card2, modifier = Modifier.graphicsLayer { alpha = pop; scaleX = .96f + .04f * pop; scaleY = scaleX; transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f) }) {
                 Cap("Таймер сна", Modifier.padding(6.dp))
                 listOf(15, 30, 45, 60, 90).forEach { m -> MenuItem("$m минут") { Player.sleepIn(m); open = false } }
                 if (at != null) MenuItem("Выключить") { Player.sleepIn(null); open = false }

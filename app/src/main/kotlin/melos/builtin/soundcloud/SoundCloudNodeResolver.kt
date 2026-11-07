@@ -18,6 +18,7 @@ import com.badmanners.murglar.lib.core.model.track.BaseTrack
 import com.badmanners.murglar.lib.core.node.BaseNodeResolver
 import com.badmanners.murglar.lib.core.node.Directory
 import com.badmanners.murglar.lib.core.node.MappedEntity
+import com.badmanners.murglar.lib.core.node.LikeConfig
 import com.badmanners.murglar.lib.core.node.Root
 import com.badmanners.murglar.lib.core.node.Search
 import com.badmanners.murglar.lib.core.node.Track
@@ -33,6 +34,9 @@ class SoundCloudNodeResolver(murglar: SoundCloudMurglar, messages: BuiltinMessag
     BaseNodeResolver<SoundCloudMurglar, BuiltinMessages>(murglar, messages) {
 
     private val ownRoots = setOf("myTracks", "myPlaylists", "stream")
+
+    private suspend fun likeTrack(node: com.badmanners.murglar.lib.core.model.node.Node, like: Boolean) =
+        murglar.likeTrack((node as melos.builtin.FTrack).id, like)
 
     override val configurations = listOf(
         Root("myTracks", { "Лайки" }, NON_PAGEABLE, false, true, TRACK, nodeContentSupplier = { p, _, _ -> murglar.myLikes().convertTracks(p) }),
@@ -50,7 +54,11 @@ class SoundCloudNodeResolver(murglar: SoundCloudMurglar, messages: BuiltinMessag
         Search("searchPlaylists", messages::playlistsSearch, hasSubdirectories = true, contentNodeType = PLAYLIST,
             nodeContentSupplier = { p, page, params -> murglar.searchPlaylists(params.getQuery(), page).convertPlaylists(p) }),
 
+        Directory("*/track-<trackId>/similar", NON_PAGEABLE, false, TRACK,
+            nodeSupplier = { p, _ -> subdirectoryNode("similar", "Похожие треки", p) },            // страница трека открывает раздел по пути
+            nodeContentSupplier = { p, _, params -> murglar.related(params["trackId"]!!).convertTracks(p) }),
         Track("*/track-<trackId>", relatedPaths = ::relatedForTrack,
+            like = LikeConfig(rootNodePath("myTracks"), ::likeTrack),            // лайки треков — «Лайки» и медиатека Melos
             nodeSupplier = { p, params -> murglar.getTrack(params["trackId"]!!).convertTrack(p) }),
 
         MappedEntity("*/album-<id>", NON_PAGEABLE, false, ALBUM, TRACK,
@@ -103,6 +111,7 @@ class SoundCloudNodeResolver(murglar: SoundCloudMurglar, messages: BuiltinMessag
         return listOfNotNull(
             NamedPath("Волна по треку", RADIO, unmappedPath().child("radio-${t.id}")),
             t.artistId?.let { NamedPath(t.artistName ?: "Исполнитель", ARTIST, unmappedPath().child("artist-$it")) },
+            NamedPath("Похожие треки", TRACK, unmappedPath().child("track-${t.id}").child("similar")),
         )
     }
 

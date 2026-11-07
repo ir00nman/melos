@@ -85,6 +85,13 @@ object Analyzer {
         }
     }
 
+    /**
+     * Латентность вывода за пределами буфера Java Sound (микшер ОС, ЦАП; Bluetooth добавляет ещё 100–200 мс).
+     * Анализатор отмечает события этим «слышимым» моментом — иначе анимации обгоняют звук.
+     * MELOS_LATENCY_MS=… — ручная поправка под свои наушники.
+     */
+    private val OUTPUT_LATENCY_MS = System.getenv("MELOS_LATENCY_MS")?.toIntOrNull()?.toLong() ?: 40L
+
     /** interleaved s16; [delayFrames] — сколько кадров уже ждёт в буфере вывода до этого куска. */
     fun push(pcm: ShortArray, frames: Int, channels: Int, delayFrames: Int) {
         val pushAt = System.currentTimeMillis()
@@ -96,7 +103,7 @@ object Analyzer {
             ring[(written and (ring.size - 1).toLong()).toInt()] = s / (channels * 32768f)
             written++
             while (written >= nextHop) {
-                val playAt = pushAt + ((delayFrames + (nextHop - startPos)) * 1000L / RATE)
+                val playAt = pushAt + OUTPUT_LATENCY_MS + ((delayFrames + (nextHop - startPos)) * 1000L / RATE)
                 analyze(nextHop, playAt)
                 nextHop += HOP
             }

@@ -14,8 +14,15 @@ kotlin {
 // -PdevOut=<папка> — отдельная папка сборки: тестовые сборки не подменяют классы у уже запущенного Melos
 providers.gradleProperty("devOut").orNull?.let { layout.buildDirectory.set(file(it)) }
 
+// -Ptarget=windows — сборка под Windows x64 с другой ОС (портативная версия: jar + Java + Melos.exe, см. packaging/windows)
+val target: String? = providers.gradleProperty("target").orNull
+
+// Версия приложения: попадает в установщики и в ресурсы (melos/version.txt) — её сверяет обновлялка с релизами GitHub.
+// Релиз: packaging/publish.sh <версия> (он передаёт -PappVersion).
+val appVersion: String = providers.gradleProperty("appVersion").orNull ?: "1.0.0"
+
 // Окно входа в сервисы (как в Murglar) — WebView из JavaFX: нативные части JavaFX берём под текущую ОС и архитектуру.
-val javafxPlatform: String = run {
+val javafxPlatform: String = if (target == "windows") "win" else run {
     val os = System.getProperty("os.name").lowercase()
     val arm = System.getProperty("os.arch").let { it == "aarch64" || it == "arm64" }
     when {
@@ -26,7 +33,7 @@ val javafxPlatform: String = run {
 }
 
 dependencies {
-    implementation(compose.desktop.currentOs)
+    implementation(if (target == "windows") compose.desktop.windows_x64 else compose.desktop.currentOs)
     implementation(libs.murglar.core)
     implementation(libs.vlcj)
     implementation(libs.coroutines.swing)
@@ -35,30 +42,34 @@ dependencies {
     listOf("base", "graphics", "controls", "media", "web", "swing").forEach {
         implementation("org.openjfx:javafx-$it:${libs.versions.javafx.get()}:$javafxPlatform")
     }
-    // окно входа на Chromium (CEF), как в Murglar: Google, Apple, SoundCloud не пускают во встроенный WebKit из JavaFX.
-    // Сам Chromium (~150–200 МБ) KCEF скачивает при первом входе в папку данных Melos.
-    implementation("dev.datlag:kcef:2025.03.23")
     testImplementation(kotlin("test"))
 }
 
 compose.desktop {
     application {
         mainClass = "melos.MainKt"
-        jvmArgs += listOf("-Dapple.awt.application.appearance=system", "-Dfile.encoding=UTF-8",
-            // CEF встраивает окно браузера в AWT — ему нужен доступ к внутренним пакетам AWT
-            "--add-opens", "java.desktop/sun.awt=ALL-UNNAMED", "--add-opens", "java.desktop/sun.lwawt=ALL-UNNAMED",
-            "--add-opens", "java.desktop/sun.lwawt.macosx=ALL-UNNAMED", "--add-opens", "java.desktop/java.awt.peer=ALL-UNNAMED")
+        jvmArgs += listOf("-Dapple.awt.application.appearance=system", "-Dfile.encoding=UTF-8")
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb, TargetFormat.AppImage)
             packageName = "Melos"
-            packageVersion = "1.0.0"
+            packageVersion = appVersion
             description = "Музыкальный плеер на VLC с плагинами Murglar"
             vendor = "Melos"
             modules("java.net.http", "java.sql", "jdk.unsupported", "jdk.jsobject", "java.scripting")
-            macOS { bundleID = "app.melos" }
-            windows { menuGroup = "Melos"; upgradeUuid = "8a3f2c1e-5b7d-4e9a-9c61-2f4b8d0e7a13" }
+            macOS { bundleID = "app.melos"; iconFile.set(rootProject.file("packaging/icons/melos.icns")) }
+            windows {
+                menuGroup = "Melos"
+                upgradeUuid = "8a3f2c1e-5b7d-4e9a-9c61-2f4b8d0e7a13"
+                iconFile.set(rootProject.file("packaging/icons/melos.ico"))   // иконка установщика и ярлыка
+                shortcut = true                                               // ярлык на рабочем столе
+                dirChooser = true                                             // выбор папки установки
+            }
         }
     }
 }
 
 tasks.test { useJUnitPlatform() }
+
+tasks.processResources {
+    filesMatching("melos/version.txt") { expand("version" to appVersion) }
+}

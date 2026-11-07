@@ -40,6 +40,9 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.buildJsonArray
 import java.security.MessageDigest
 import java.util.Base64
 import javax.crypto.Mac
@@ -73,8 +76,18 @@ class YandexMurglar(
         webLabel = "Войти через Яндекс",
         webLanding = Regex("""^https://(id|passport)\.yandex\.[a-z.]+/(profile/?)?(\?.*)?$"""),
     ) { token ->
-        val acc = network.getJson("$API/account/status", headers = headers(token))["result"]["account"]
+        val status = network.getJson("$API/account/status", headers = headers(token))["result"]
+        hasPlus = status["plus"].bool("hasPlus")
+        val acc = status["account"]
         (acc.long("uid")?.toString() ?: error("Токен не подошёл")) to (acc.str("displayName") ?: acc.str("login") ?: "")
+    }
+
+    /** Есть ли Плюс: без него Яндекс не отдаёт FLAC и 320 — общему поиску это нужно, чтобы честно сравнить качество. */
+    @Volatile var hasPlus: Boolean? = null
+
+    override suspend fun onCreate() {
+        super.onCreate()
+        if (loginResolver.isLogged) runCatching { hasPlus = api("/account/status")["plus"].bool("hasPlus") }
     }
 
     override val nodeResolver = YandexNodeResolver(this, messages)
@@ -220,6 +233,8 @@ class YandexMurglar(
 
     suspend fun artistInfo(id: String) = api("/artists/$id/brief-info")
 
+    suspend fun similarTracks(id: String) = api("/tracks/$id/similar")["similarTracks"].objects().mapNotNull(::track)
+
     suspend fun artistTracks(id: String, page: Int?) =
         api("/artists/$id/tracks", mapOf("page" to (page ?: 0), "page-size" to PAGE))["tracks"].objects().mapNotNull(::track)
 
@@ -227,25 +242,73 @@ class YandexMurglar(
         api("/artists/$id/direct-albums", mapOf("page-size" to 100, "sort-by" to "year"))["albums"].objects().mapNotNull(::album)
 
     // ---- волны: сессии ротора, как в нынешних приложениях Яндекса ----
-    // старый /rotor/station/…/tracks без обратной связи от плеера крутит почти одни лайки; сессия подбирает и новое
+    // старый /rotor/station/…/tracks без обратной связи от плеера крутит почти одни лайки; сессия подбирает и новое.
+    // Учится волна только на отчётах плеера (начат, дослушан, пропущен) — без них она дни подряд крутит один и тот же набор.
     private val waveQueues = java.util.concurrent.ConcurrentHashMap<String, List<String>>()   // id сессии → последние треки «id:альбом»
+    private class WaveSession(val id: String, val station: String, @Volatile var batch: String?)
+    private val waveOfTrack = java.util.concurrent.ConcurrentHashMap<String, WaveSession>()   // трек волны → её сессия
+    private val K_RECENT = "wave.recent"                                                      // недавно сыгранное в волнах
+
+    private fun recent(): List<String> = preferences.getString<String?>(K_RECENT, null)?.split(',')?.filter { it.isNotBlank() }.orEmpty()
 
     /** Следующая порция волны и курсор для следующего запроса (id сессии); не вышло с сессией — старый способ. */
     suspend fun wave(station: String, cursor: String?): Pair<List<FTrack>, String?> {
         runCatching {
-            val r = if (cursor == null || !waveQueues.containsKey(cursor))
-                network.postJson("$API/rotor/session/new", """{"seeds":["$station"],"includeTracksInResponse":true}""", headers())["result"]
+            val fresh = cursor == null || !waveQueues.containsKey(cursor)
+            val heard = recent()
+            // новая сессия знает, что уже звучало, — и не начинает с того же трека
+            val r = if (fresh)
+                network.postJson("$API/rotor/session/new", buildJsonObject {
+                    put("seeds", buildJsonArray { add(JsonPrimitive(station)) })
+                    if (heard.isNotEmpty()) put("queue", buildJsonArray { heard.take(30).forEach { add(JsonPrimitive(it)) } })
+                    put("includeTracksInResponse", true)
+                }.toString(), headers())["result"]
             else network.postJson("$API/rotor/session/$cursor/tracks",
                 """{"queue":[${waveQueues[cursor]!!.joinToString(",") { "\"$it\"" }}]}""", headers())["result"]
             val sid = r.str("radioSessionId") ?: cursor ?: error("нет id сессии")
             val seq = r["sequence"].objects().mapNotNull { it["track"] as? JsonObject }
-            val tracks = seq.mapNotNull(::track)
+            var tracks = seq.mapNotNull(::track)
             if (tracks.isEmpty()) error("пустая порция")
+            // на случай, если ротор всё же вернул только что сыгранное, — его в конец
+            if (fresh) tracks = tracks.sortedBy { t -> if (heard.any { it.substringBefore(':') == t.id }) 1 else 0 }
             waveQueues[sid] = seq.mapNotNull { t -> t.str("id")?.let { id -> t["albums"].objects().firstOrNull()?.str("id")?.let { "$id:$it" } ?: id } }
+            val session = waveOfTrack.values.firstOrNull { it.id == sid } ?: WaveSession(sid, station, null)
+            session.batch = r.str("batchId") ?: session.batch
+            tracks.forEach { waveOfTrack[it.id] = session }
+            if (fresh) feedback(session, "radioStarted")
             return tracks to sid
         }.onFailure { Log.w("Yandex", "волна $station: сессия не вышла (${it.message}), старый способ") }
         val tracks = stationTracks(station, cursor?.takeIf { !waveQueues.containsKey(it) })
         return tracks to tracks.lastOrNull()?.id
+    }
+
+    /** Отчёт плееру ротора о треке волны: начат — trackStarted; конец — trackFinished, раньше конца — skip. */
+    suspend fun waveEvent(track: FTrack, started: Boolean, playedMs: Int = 0) {
+        val session = waveOfTrack[track.id] ?: return                      // не из волны — ротору не интересно
+        val id = track.albumId?.let { "${track.id}:$it" } ?: track.id
+        if (started) {
+            feedback(session, "trackStarted", id)
+            preferences.setString(K_RECENT, (listOf(id) + recent().filter { it != id }).take(60).joinToString(","))
+        } else {
+            val finished = track.durationMs > 0 && playedMs >= track.durationMs - 5000
+            feedback(session, if (finished) "trackFinished" else "skip", id, playedMs / 1000.0)
+        }
+    }
+
+    private suspend fun feedback(session: WaveSession, type: String, trackId: String? = null, playedSec: Double? = null) {
+        runCatching {
+            val body = buildJsonObject {
+                put("event", buildJsonObject {
+                    put("type", type)
+                    put("timestamp", java.time.Instant.now().toString())
+                    put("from", "melos-radio-${session.station.replace(':', '-')}")
+                    trackId?.let { put("trackId", it) }
+                    playedSec?.let { put("totalPlayedSeconds", it) }
+                })
+                session.batch?.let { put("batchId", it) }
+            }
+            network.postJson("$API/rotor/session/${session.id}/feedback", body.toString(), headers())
+        }.onFailure { Log.w("Yandex", "волна: отчёт $type не ушёл (${it.message})") }
     }
 
     suspend fun stationTracks(station: String, lastTrack: String?): List<FTrack> =
@@ -255,6 +318,12 @@ class YandexMurglar(
     suspend fun like(trackId: String, albumId: String?, like: Boolean) {
         val action = if (like) "add-multiple" else "remove"
         api("/users/${uid()}/likes/tracks/$action", mapOf("track-ids" to (albumId?.let { "$trackId:$it" } ?: trackId)), "POST")
+    }
+
+    /** «Не нравится» в Яндексе: трек уходит из волн и рекомендаций (пропуск в идущей волне ротор получит как skip). */
+    suspend fun dislike(track: FTrack, on: Boolean) {
+        val id = track.albumId?.let { "${track.id}:$it" } ?: track.id
+        api("/users/${uid()}/dislikes/tracks/${if (on) "add-multiple" else "remove"}", mapOf("track-ids" to id), "POST")
     }
 
     /** kind — albums или artists */

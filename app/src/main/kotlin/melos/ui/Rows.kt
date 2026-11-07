@@ -52,6 +52,7 @@ import melos.player.Status
 fun TrackRow(
     track: BaseTrack, index: Int, onPlay: () -> Unit, modifier: Modifier = Modifier,
     showCover: Boolean = true, onRemove: (() -> Unit)? = null, dense: Boolean = false, showLike: Boolean = true,
+    trailing: (@Composable () -> Unit)? = null,                    // перед длительностью: например, качество и площадки
 ) {
     val p = pal
     val current by Player.current.collectAsState()
@@ -65,19 +66,23 @@ fun TrackRow(
     val hovered by src.collectIsHoveredAsState()
     val clipboard = LocalClipboardManager.current
     val service = Services.forTrack(track)
+    // двойной клик успевает дважды позвать onPlay — второй перезапускает трек с начала; глушим
+    val lastPlay = remember { androidx.compose.runtime.mutableLongStateOf(0L) }
+    fun playOnce() { val now = System.currentTimeMillis(); if (now - lastPlay.longValue > 400) { lastPlay.longValue = now; onPlay() } }
 
     ContextMenuArea(items = {
         buildList {
             add(ContextMenuItem("Сыграть следующим") { Player.playNext(track) })
             add(ContextMenuItem("Добавить в очередь") { Player.enqueue(listOf(track)) })
             add(ContextMenuItem(if (liked) "Убрать из избранного" else "В избранное") { Player.toggleLike(track) })
+            add(ContextMenuItem(if (Library.isDisliked(track)) "Убрать из «Не нравится»" else "Не нравится") { Player.toggleDislike(track) })
             add(ContextMenuItem("Сохранить на устройство…") { saveToDevice(listOf(track)) })
             runCatching { service?.murglar?.nodeResolver?.getRelatedNodePaths(track) }.getOrNull().orEmpty().forEach { rel ->
                 add(ContextMenuItem(rel.name) { Nav.go(Screen.OpenPath(rel.path, rel.name)) })
             }
             track.serviceUrl?.let { url ->
                 add(ContextMenuItem("Копировать ссылку") { clipboard.setText(AnnotatedString(url)) })
-                if (url.startsWith("http")) add(ContextMenuItem("Открыть в браузере") { runCatching { java.awt.Desktop.getDesktop().browse(java.net.URI(url)) } })
+                if (url.startsWith("http")) add(ContextMenuItem("Открыть в браузере") { melos.core.Browse.url(url) })
             }
             onRemove?.let { add(ContextMenuItem("Убрать") { it() }) }
         }
@@ -85,11 +90,12 @@ fun TrackRow(
         Row(
             modifier.fillMaxWidth().clip(R.md)
                 .background(when { isCurrent -> p.acc.copy(alpha = .10f); hovered -> p.txt.copy(alpha = .05f); else -> Color.Transparent })
-                .hoverable(src).clickable { onPlay(); BrainBus.absorb() }.pointerHoverIcon(PointerIcon.Hand)
+                .hoverable(src).clickable { playOnce(); BrainBus.absorb() }.pointerHoverIcon(PointerIcon.Hand)
                 .padding(horizontal = 8.dp, vertical = if (dense) 4.dp else 6.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            if (showCover) Box(contentAlignment = Alignment.Center) {
+            // обложка — переход на страницу трека (строка целиком — играть)
+            if (showCover) Box(Modifier.clip(R.sm).clickable { Nav.go(Screen.Track(track)) }, contentAlignment = Alignment.Center) {
                 Cover(track.smallCoverUrl ?: track.bigCoverUrl, if (dense) 34.dp else 40.dp)
                 if (isCurrent) Box(Modifier.size(if (dense) 34.dp else 40.dp).clip(R.sm).background(Color.Black.copy(alpha = .45f)), contentAlignment = Alignment.Center) {
                     Bars(status == Status.PLAYING, Color.White)
@@ -107,8 +113,9 @@ fun TrackRow(
                     IconBtn(Ic.plus, { Player.enqueue(listOf(track)) }, size = 15.dp)
                     if (onRemove != null) IconBtn(Ic.x, onRemove, size = 14.dp)
                 }
-                if (showLike) IconBtn(if (liked) Ic.heartOn else Ic.heart, { Player.toggleLike(track); if (!liked) BrainBus.heart() }, size = 15.dp, active = liked)
+                if (showLike) IconBtn(if (liked) Ic.heartOn else Ic.heart, { Player.toggleLike(track); if (!liked) BrainBus.heart() }, size = 15.dp, active = liked, modifier = Modifier.shake(Player.likeFailedAt))
             }
+            trailing?.invoke()
             when (val d = downloads[track.mediaId]) {
                 is Downloads.State.Running -> Txt("${(d.progress * 100).toInt()}%", color = p.acc, style = T.monoSmall)
                 is Downloads.State.Done -> Icon(Ic.check, p.ok, size = 13.dp)

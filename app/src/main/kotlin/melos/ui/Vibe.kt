@@ -71,10 +71,12 @@ object Pulse {
     private var mapPos = -1L
     // сдвиг «позиция VLC → слышимое»: по замерам ~−150 мс, дальше подстраивается по услышанным ударам
     private const val MAP_OFFSET_TAP = -140L
+    // прямой вывод VLC: позиция обгоняет звук на буфер вывода самого VLC (кэш + аудиовыход)
+    private const val MAP_OFFSET_DIRECT = -110L
     /** Ручная поправка синхронизации анимаций (настройки), мс: «+» — анимации раньше, «−» — позже. */
     var syncShiftMs by mutableLongStateOf(melos.core.Settings.store.long("anim.shift") ?: 0L)
     fun setSyncShift(v: Long) { syncShiftMs = v.coerceIn(-400, 400); melos.core.Settings.store.put("anim.shift", syncShiftMs) }
-    private fun baseOffset() = (if (Player.tapping) MAP_OFFSET_TAP else 0L) - syncShiftMs
+    private fun baseOffset() = (if (Player.tapping) MAP_OFFSET_TAP else MAP_OFFSET_DIRECT) - syncShiftMs
     private val calib = ArrayDeque<Long>(); private var mapOffset = 0L
     /** Сглаженная за ~2 с плотность трека 0..1: спокойный трек — реакции мягкие, плотный — сильные. */
     var energy = 0f; private set
@@ -83,8 +85,13 @@ object Pulse {
     private var lastTrack: String? = null
     private val debugBeats = System.getenv("MELOS_DEBUG_BEATS") == "1"
 
-    /** 0..1 — затухающая вспышка после удара бочки */
-    fun beat(now: Long = System.currentTimeMillis()) = (1f - (now - beatAt) / 300f).coerceIn(0f, 1f)
+    /** 0..1 — затухающая вспышка после удара бочки (атака ~35 мс — не «щёлкает» мгновенно) */
+    fun beat(now: Long = System.currentTimeMillis()): Float {
+        val t = (now - beatAt).toFloat()
+        if (t < 0f) return 0f
+        if (t < 35f) { val u = t / 35f; return u * u * (3 - 2 * u) }
+        return (1f - (t - 35f) / 300f).coerceIn(0f, 1f)
+    }
     /** «Панч» бочки: резкая атака ~25 мс, упругий спад ~220 мс, умножен на силу удара */
     fun punch(now: Long = System.currentTimeMillis()): Float {
         val t = (now - kickAt).toFloat()
@@ -115,18 +122,12 @@ object Pulse {
     private const val LERP_DOWN = 0.14f          // [Lerp] … и при спаде: полосы опускаются мягче, чем поднимаются
     private const val PEAK_HOLD_MS = 320L        // [Peak Decay] сколько вершина «висит» наверху
     private const val PEAK_GRAVITY = 2.2f        // [Peak Decay] ускорение падения, долей высоты в с²
-    private const val BEAT_HISTORY = 43          // [Beat Detection] окно истории энергии баса, кадров (~0,7 с)
-    private const val BEAT_C = 1.3f              // [Beat Detection] во сколько раз энергия должна превысить среднее
-    private const val BEAT_MIN_ENERGY = 0.08f    // [Beat Detection] доля от максимума трека: тишину и шипение битом не считаем
-    private const val BEAT_COOLDOWN_MS = 300L    // [Beat Detection] не чаще 200 ударов в минуту (как framesPerPeak): восьмые баса не считаем
 
     /** [Peak Decay] вершины полос спектра — для отрисовки «падающих пиков». */
     val peaks = FloatArray(Analyzer.BANDS)
     private val peakHoldUntil = LongArray(Analyzer.BANDS)
     private val peakVelocity = FloatArray(Analyzer.BANDS)
     private val raw = FloatArray(Analyzer.BANDS)                 // «сырые» полосы кадра — цель для Lerp
-    private val energyHistory = FloatArray(BEAT_HISTORY)         // [Beat Detection] кольцевой буфер энергии баса
-    private var historyIdx = 0; private var historyCount = 0
     private var lastFrameNs = 0L
     private var maxLowEnergy = 0f
 
@@ -141,7 +142,7 @@ object Pulse {
         val now = System.currentTimeMillis()
         val playing = Player.status.value == Status.PLAYING
         val track = Player.current.value?.mediaId
-        if (track != lastTrack) { lastTrack = track; kicks.clear(); bpm = 0f; drop = 0f; historyCount = 0; historyIdx = 0; maxLowEnergy = 0f; mapPos = -1L; calib.clear(); mapOffset = baseOffset(); section = -1; antic = 0f }
+        if (track != lastTrack) { lastTrack = track; kicks.clear(); bpm = 0f; drop = 0f; maxLowEnergy = 0f; mapPos = -1L; calib.clear(); mapOffset = baseOffset(); section = -1; antic = 0f }
         if (calib.isEmpty()) mapOffset = baseOffset()
         val map = melos.player.TrackAnalysis.mapFor(track)
         mapActive = map != null && playing
@@ -149,13 +150,18 @@ object Pulse {
             when (e) {
                 is Analyzer.Kick -> {
                     onKick(e.at); Analyzer.bpm.takeIf { it > 0 }?.let { bpm = it }
-                    // самокалибровка карты: где по позиции оказался услышанный удар относительно ближайшей доли карты
-                    if (map != null && map.beats.isNotEmpty()) {
+                    // визуал без карты ведёт трекер долей Analyzer (сетка темпа): он не срабатывает
+                    // на произвольные волны баса, в отличие от порога по энергии
+                    if (!mapActive) { kickAt = e.at; beatAt = e.at; kickPower = e.power }
+                    // самокалибровка карты: где по позиции оказался услышанный удар относительно ближайшей доли карты.
+                    // Принимаем только уверенные удары (сильные и близкие к доле): ложные онсеты синтов
+                    // между долями иначе тянут offset в стороны (±200 мс) — визуал «не в бит»
+                    if (map != null && map.beats.isNotEmpty() && e.power >= 0.45f) {
                         val posAt = Player.positionMs() - (now - e.at)
                         var lo = 0; var hi = map.beats.size - 1
                         while (lo < hi) { val mid = (lo + hi) / 2; if (map.beats[mid] < posAt) lo = mid + 1 else hi = mid }
                         val near = listOfNotNull(map.beats.getOrNull(lo), map.beats.getOrNull(lo - 1)).minByOrNull { kotlin.math.abs(it - posAt) }
-                        if (near != null && kotlin.math.abs(posAt - near) < 220) {
+                        if (near != null && kotlin.math.abs(posAt - near) < 120) {
                             calib.addLast(posAt - near); while (calib.size > 12) calib.removeFirst()
                             if (calib.size >= 4) mapOffset = calib.sorted()[calib.size / 2] - syncShiftMs
                             if (debugBeats) melos.host.Log.i("MapSync", "diff=${posAt - near}ms offset=${mapOffset}ms")
@@ -206,23 +212,10 @@ object Pulse {
             }
         }
 
-        // [Beat Detection] Sound Energy: мгновенная энергия баса (квадрат амплитуды низких полос) сравнивается
-        // со средней за последние BEAT_HISTORY кадров; превысила в BEAT_C раз — бит
-        if (playing && f != null) {
-            val e = f.lowEnergy                                                // E = Σ|X(k)|² по басовым бинам FFT (линейно)
-            maxLowEnergy = max(maxLowEnergy * 0.9995f, e)                      // максимум трека — для порога тишины
-            var avg = 0f
-            for (k2 in 0 until historyCount) avg += energyHistory[k2]
-            if (historyCount > 0) avg /= historyCount                          // <E> — средняя энергия окна
-            if (!mapActive && historyCount >= BEAT_HISTORY / 2 && e > BEAT_C * avg && e > BEAT_MIN_ENERGY * maxLowEnergy && now - beatAt > BEAT_COOLDOWN_MS) {
-                if (debugBeats) melos.host.Log.i("Beat", "gap=${now - beatAt}ms ratio=${"%.2f".format(e / max(avg, 1e-6f))}")
-                beatAt = now; kickAt = now
-                kickPower = ((e / max(avg, 1e-4f) - 1f) / 1.2f).coerceIn(0.3f, 1f)   // сила — насколько превысили среднее
-            }
-            energyHistory[historyIdx] = e                                      // сдвигаем окно истории
-            historyIdx = (historyIdx + 1) % BEAT_HISTORY
-            historyCount = min(historyCount + 1, BEAT_HISTORY)
-        }
+        // [Beat Detection] раньше здесь был второй детектор — энергия баса против среднего: он дёргался
+        // на любые волны баса (не только бочку) и не держал сетку. Теперь удары визуала ведёт трекер
+        // долей Analyzer (см. drain выше): он привязан к темпу и событию присвоен «слышимый» момент.
+        if (playing && f != null) maxLowEnergy = max(maxLowEnergy * 0.9995f, f.lowEnergy)
 
         // ---- карта трека: доли, дропы, энергия и нарастание — ровно по позиции воспроизведения ----
         var mapDrop = -1f
@@ -234,8 +227,13 @@ object Pulse {
                 while (lo < hi) { val mid = (lo + hi) / 2; if (map.beats[mid] <= mapPos) lo = mid + 1 else hi = mid }
                 var b = lo
                 while (b < map.beats.size && map.beats[b] <= pos) {
-                    kickAt = now - (pos - map.beats[b]); beatAt = kickAt
-                    kickPower = map.strength[b] * (if (map.downbeat[b]) 1f else 0.72f)   // сильная доля такта бьёт сильнее
+                    // визуал бьёт только по настоящим ударам: слабые доли сетки (при ошибке октавы темпа
+                    // их половина приходится между бочками) молчат — иначе пульс чаще, чем звук
+                    val strength = map.strength[b]
+                    if (strength >= 0.45f || map.downbeat[b]) {
+                        kickAt = now - (pos - map.beats[b]); beatAt = kickAt
+                        kickPower = strength * (if (map.downbeat[b]) 1f else 0.72f)   // сильная доля такта бьёт сильнее
+                    }
                     if (map.downbeat[b]) {
                         downAt = kickAt
                         // фраза — каждые 8 тактов от начала части (по карте — и после перемотки); сама граница части — не фраза

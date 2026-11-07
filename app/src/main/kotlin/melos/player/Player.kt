@@ -33,7 +33,6 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
-import uk.co.caprica.vlcj.player.base.Equalizer
 import java.io.File
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -98,8 +97,7 @@ object Player {
     private var order: List<Int> = emptyList()       // порядок при перемешивании: индексы очереди
 
     fun init() {
-        if (!available) return
-        engine = newEngine(tapAudio.value)
+        if (available) initEngine()        // без VLC всё равно подписываемся: после установки плеер поднимется на лету
         volume.onEach { applyVolume(); store.put("volume", it) }.launchIn(scope)
         normalize.onEach { applyVolume(); store.put("normalize.v2", it) }.launchIn(scope)
         _current.onEach { applyVolume() }.launchIn(scope)
@@ -119,10 +117,34 @@ object Player {
         scope.launch { restoreQueue() }
     }
 
+    /** Движок создаётся отдельно от подписок настроек: после установки VLC его можно поднять без перезапуска. */
+    private fun initEngine() {
+        if (engine != null) return
+        engine = newEngine(tapAudio.value)
+    }
+
+    /** «Проверить снова» после установки VLC: true — плеер заработал без перезапуска приложения. */
+    fun recheckVlc(): Boolean {
+        if (engine != null) return true
+        if (!VlcEngine.rediscover()) return false
+        initEngine()
+        Toasts.shortNotify("VLC найден — плеер готов")
+        return true
+    }
+
     // MELOS_SILENT=1 (отладка): весь тракт работает, но в устройство идёт тишина
     private val silent = System.getenv("MELOS_SILENT") == "1"
 
-    private fun newEngine(tap: Boolean) = VlcEngine(tap || silent, silent).also { e ->
+    private fun newEngine(tap: Boolean): VlcEngine {
+        var e = VlcEngine(tap || silent, silent)
+        // вывод через Melos не поднялся (Java Sound не дал линию) — молчание недопустимо: играем напрямую через VLC
+        if ((tap || silent) && !e.tapping) {
+            Log.w("Player", "вывод через Melos недоступен — VLC напрямую")
+            if (!silent) Toasts.error("«Звук через Melos» не поднялся на этой системе — играю напрямую через VLC")
+            e.release()
+            e = VlcEngine(false, silent)
+        }
+        return e.apply {
         e.onFinished = { scope.launch { onTrackEnd(natural = true) } }
         e.onError = { scope.launch { onEngineError() } }
         e.status.onEach { if (System.getenv("MELOS_EQTEST") == "1") Log.i("Status", it.name); _status.value = it }.launchIn(scope)
@@ -131,16 +153,18 @@ object Player {
         e.nowPlaying.onEach { _nowPlaying.value = it }.launchIn(scope)
         e.setVolume(effectiveVolume())
         applyEq(EqState(eqOn.value, eqPreset.value, eqAmps.value, eqPreamp.value), e)
+        }
     }
 
     /** Смена режима вывода звука пересоздаёт плеер — callback у libVLC ставится только до старта. */
     fun setTap(on: Boolean) {
         tapAudio.value = on; store.put("tapAudio.v5", on)
-        val wasPlaying = _status.value == Status.PLAYING
+        val resumeAt = _status.value.takeIf { it == Status.PLAYING || it == Status.PAUSED }
         val pos = _time.value
         engine?.release()
+        _status.value = Status.IDLE                      // новый движок пуст: старый статус (например, PAUSED) больше не правда
         engine = newEngine(on)
-        if (_current.value != null && wasPlaying) playIndex(_index.value, pos)
+        if (_current.value != null && resumeAt != null) playIndex(_index.value, pos)   // продолжаем и после паузы
     }
 
     val tapping get() = engine?.tapping == true
@@ -233,7 +257,7 @@ object Player {
             runCatching {
                 val service = Services.forNode(radio) ?: error("Нет сервиса для волны")
                 val update = service.murglar.nodeResolver.getRadioContent(radio, null)
-                val tracks = update.nextTracks.filterIsInstance<BaseTrack>()
+                val tracks = update.nextTracks.filterIsInstance<BaseTrack>().filter { !Library.isDisliked(it) }
                 if (tracks.isEmpty()) error("Волна пуста")
                 playList(tracks, 0, context, update.updatedRadio)
             }.onFailure { _status.value = Status.ERROR; Toasts.error("Волна: ${it.message}") }
@@ -309,9 +333,11 @@ object Player {
     fun toggle() = when (_status.value) {
         Status.PLAYING -> engine?.pause()
         Status.PAUSED -> engine?.resume()
+        // грузится — не мешаем; но если загрузка уже умерла, а VLC так и не начал (застряли в OPENING/BUFFERING),
+        // «Плей» не должен молчать: перезапускаем трек с той же позиции
+        Status.OPENING, Status.BUFFERING -> if (loadJob?.isActive != true && _index.value >= 0) playIndex(_index.value, startPosition()) else Unit
         // трек ещё не загружен — с позиции, куда перемотали (или где остановились до перезапуска)
         Status.IDLE, Status.ENDED, Status.ERROR -> if (_index.value >= 0) playIndex(_index.value, startPosition()) else Unit
-        else -> Unit
     }
 
     fun next() { scope.launch { onTrackEnd(natural = false) } }
@@ -343,7 +369,13 @@ object Player {
         reportEnd()
         if (natural && repeat.value == Repeat.ONE) { playIndex(_index.value); return }
         maybeExtendRadio(force = true)
-        val next = neighbour(+1)
+        // дальше — первый трек, который не в «Не нравится» (выбранный вручную всё равно играет)
+        var next = neighbour(+1)
+        var guard = _queue.value.size
+        while (next != null && guard-- > 0 && Library.isDisliked(_queue.value[next])) {
+            _index.value = next
+            next = neighbour(+1)
+        }
         if (next != null) playIndex(next)
         else { _status.value = Status.ENDED; if (!natural) engine?.stop() }
     }
@@ -369,7 +401,7 @@ object Player {
             val update = service.murglar.nodeResolver.getRadioContent(radio, null)
             _radio.value = update.updatedRadio
             val known = _queue.value.map { it.mediaId }.toSet()
-            val fresh = update.nextTracks.filterIsInstance<BaseTrack>().filter { it.mediaId !in known }
+            val fresh = update.nextTracks.filterIsInstance<BaseTrack>().filter { it.mediaId !in known && !Library.isDisliked(it) }
             // новая порция — только в конец, сыгранное не трогаем (раньше порядок пересобирался и треки шли по кругу)
             if (fresh.isNotEmpty()) { val from = _queue.value.size; _queue.value = _queue.value + fresh; order = order + (from until _queue.value.size) }
         }.onFailure { Log.w("Player", "radio: ${it.message}") }
@@ -377,6 +409,11 @@ object Player {
 
     fun playIndex(i: Int, startMs: Long = 0) {
         val track = _queue.value.getOrNull(i) ?: return
+        if (engine == null) {            // VLC не установлен: не зависаем в OPENING, а объясняем что делать
+            _status.value = Status.IDLE
+            Toasts.error("VLC не найден — установите VLC 3 (64-бит)")
+            return
+        }
         _index.value = i
         _current.value = track
         _length.value = track.durationMs
@@ -419,7 +456,9 @@ object Player {
         val service = Services.forTrack(track) ?: error("Сервис трека не загружен")
         val murglar = service.murglar
         var last: Throwable? = null
-        val sources = pickSources(track).let { list -> if (forDownload) list.sortedBy { if (it.container == Container.PROGRESSIVE) 0 else 1 } else list }
+        // загрузка — всегда в лучшем качестве (без предела из настроек); HLS скачать нельзя — он в конце
+        val sources = if (forDownload) track.sources.sortedWith(compareBy<Source> { if (it.container == Container.HLS) 1 else 0 }
+            .thenByDescending { it.qualityTier.ordinal }.thenByDescending { it.bitrate.value ?: 0 }) else pickSources(track)
         for (source in sources) {
             try {
                 val resolved = murglar.resolveSourceForUrl(track, source)
@@ -481,6 +520,9 @@ object Player {
 
     fun isLiked(track: BaseTrack) = melos.library.ServiceLikes.isLiked(track.mediaId) || Library.isFavorite(track.mediaId)
 
+    /** Момент последнего неудачного лайка: сердца в UI коротко вздрагивают. */
+    @Volatile var likeFailedAt = 0L
+
     fun toggleLike(track: BaseTrack) {
         val liked = isLiked(track)
         val r = Services.forTrack(track)?.murglar?.nodeResolver
@@ -494,9 +536,35 @@ object Player {
         scope.launch {
             runCatching { r!!.likeNode(track, !liked) }.onFailure {
                 melos.library.ServiceLikes.mark(track, liked)                  // откатываем отметку
+                likeFailedAt = System.currentTimeMillis()
                 Toasts.error("Лайк в сервисе не прошёл: ${it.message}")
             }
         }
+    }
+
+    // ---- дизлайк: трек больше не звучит в волнах и при переходе по очереди; сервис, если умеет, тоже узнаёт ----
+
+    fun toggleDislike(track: BaseTrack) {
+        val on = !Library.isDisliked(track)
+        if (on) {
+            Library.dislikes.addFirst(track.snap())
+            if (isLiked(track)) toggleLike(track)                                 // не нравится — значит и не «нравится»
+            Toasts.shortNotify("Больше не включу «${track.title}» сам — включить можно вручную")
+        } else {
+            Library.dislikes.items.value.filter { it.mediaId == track.mediaId || (it.title == track.fullTitle && it.artists == track.artists) }
+                .forEach { Library.dislikes.remove(it.mediaId) }
+            Library.dislikes.remove(track.mediaId)
+        }
+        scope.launch {
+            val murglar = Services.forTrack(track)?.murglar
+            runCatching {
+                when {
+                    murglar is melos.builtin.yandex.YandexMurglar -> murglar.dislike(track as FTrack, on)
+                    on && supports(track, PlayerEvent.DislikeTrack::class) -> murglar!!.nodeResolver.handleEvent(PlayerEvent.DislikeTrack, track)
+                }
+            }.onFailure { Log.w("Player", "dislike: ${it.message}") }
+        }
+        if (on && _current.value?.mediaId == track.mediaId) next()                // играет сейчас — дальше
     }
 
     // ---- таймер сна ----
