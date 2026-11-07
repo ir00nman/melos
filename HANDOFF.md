@@ -15,7 +15,12 @@ Melos (бывш. Flayer) — десктопный музыкальный пле�
 - Портативная сборка уже умеет кросс-собираться с мака (`packaging/windows/build.sh`), артефакты: `dist/Melos-windows-x64.zip` (портативная папка) и `dist/Melos.exe` (warp-однофайловый).
 - MSI-установщик собирается только на Windows: `packaging\windows\build-msi.bat` (нужны JDK 21 + WiX Toolset 3.x). Настройки установщика — `app/build.gradle.kts`, блок `nativeDistributions.windows`.
 
-## Что сделано в этой сессии (незакоммичено!)
+## Что сделано в этой сессии
+
+Всё ниже (и работа 2026-11-04…07: VK-плагин, офлайн-поиск, эквалайзер, обновлялка, тактильный UI,
+синк мозга с битом, лого-эмблема, компактные вершины мозга) закоммичено и запушено 2026-11-07
+(main@babf6bf). Windows-сборка с этими изменениями: `dist/Melos-windows-x64.zip` + `dist/Melos.exe`.
+На Windows-машине: `git pull` → при желании MSI через `packaging\windows\build-msi.bat`.
 
 1. **Фикс «кнопка плей не работает после переключения вкладок»**: `VlcEngine.buffering` больше не затирает статус PAUSED; `Player.toggle()` перезапускает трек, если застряли в OPENING/BUFFERING с мёртвой загрузкой; `setTap` чинит рассинхрон статуса при пересоздании движка (`melos/player/VlcEngine.kt`, `melos/player/Player.kt`).
 2. **Windows-порт**: карточка «Melos не нашёл VLC» на главной с кнопками «Найти на ПК» (перепроверка без перезапуска, `Player.recheckVlc()`) и «Установить VLC» (страница по ОС, `Paths.vlcDownloadUrl`); статус VLC в Настройки → Звук; рендер Windows = DIRECT3D (`skiko.renderApi`, Main.kt); иконка окна из `app/src/main/resources/melos/icon.png`; `packaging/windows`: `build-msi.bat`, чек-лист `ПРОВЕРКА.md`.
