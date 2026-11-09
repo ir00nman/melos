@@ -131,9 +131,24 @@ class SpinGovernor(
     private var target = baseIdle
     private var play = 0f   // 0..1, плавный флаг «играет» (вход/выход за ~0.8 c)
 
+    /** Полный сброс при смене трека. */
+    fun reset() { omega = 0f; kickV = 0f; play = 0f; target = baseIdle }
+
     fun kick(amount: Float) { kickV = min(kickCap, kickV + amount.coerceIn(0f, kickCap)) }
 
+    /** Страховка: точка входа dt <= 50 мс, NaN/Infinity в ответе не бывает. */
     fun step(dt: Float, playing: Boolean, bass01: Float, calm: Float, tension: Float): Float {
+        val d = if (dt.isFinite()) dt.coerceIn(0f, 0.05f) else 0.016f
+        if (!omega.isFinite()) omega = 0f
+        if (!kickV.isFinite()) kickV = 0f
+        if (!play.isFinite()) play = 0f
+        val b = if (bass01.isFinite()) bass01 else 0f
+        val c = if (calm.isFinite()) calm else 0f
+        val t = if (tension.isFinite()) tension else 0f
+        return stepInner(d, playing, b, c, t)
+    }
+
+    private fun stepInner(dt: Float, playing: Boolean, bass01: Float, calm: Float, tension: Float): Float {
         play += ((if (playing) 1f else 0f) - play) * (1f - exp(-dt / 0.8f))
         val driven = basePlay + bassGain * bass01.coerceIn(0f, 1f)
         // в провале почти замираем, на нарастании чуть разгоняемся

@@ -243,7 +243,6 @@ object Net {
     var heartAt = 0L; var heartBurst = false                                // сердце из точек на лайк
     var scrubAt = 0L; var scrubDir = 0f; var lastTime = 0L; var lastTimeAt = 0L; var wasPlaying = false
     var lastDropAt = 0L; var dropKickAt = 0L                                 // дроп: момент последнего «взрыва»
-    var flipFrom = 0f; var flipTo = 0f                                      // на дропе наклон сети переворачивается
     // поза под форму песни: поворот и наклон, к которым сеть плавно тянется (смена части, фраза, сильная доля)
     var yaw = 0f; var yawTo = 0f; var yawDir = 1f
     var tiltOff = 0f; var tiltTo = 0f
@@ -265,6 +264,15 @@ object Net {
 
     /** Ограничитель вращения: скорость пружиной к цели, толчки ограничены, старт/стоп плавные (~0.8 с). */
     val spin = melos.player.SpinGovernor()
+
+    // ---- отладка разгона (MELOS_DEBUG_SPIN=1) ----
+    val debugSpin = System.getenv("MELOS_DEBUG_SPIN") == "1"
+    var brainInstances = 0                 // активных Canvas'ов мозга (должно быть 1)
+    var pulseDrivers = 0                   // активных циклов Pulse.tick (должно быть 1)
+    var lastGovernorOmega = 0f             // что вернул губернатор в последнем кадре
+    var lastYaw = 0f                       // для измерения реальной скорости yaw_total
+    var lastYawAt = 0L
+    var lastSpinLog = 0L
 
     fun react(kind: String, p: Palette) {
         activeAt = System.currentTimeMillis()

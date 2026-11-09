@@ -52,6 +52,10 @@ import kotlin.math.sqrt
 //   поток грузится — «думает» (искры к ядру, ядро дышит); пауза — притихает; ошибка — красный отлив и вздрог.
 @Composable
 fun Brain(modifier: Modifier = Modifier, interactive: Boolean = true, center: Offset = Offset(0.5f, 0.46f), scaleK: Float = 1f, light: Float = 1f) {
+    if (Net.debugSpin) androidx.compose.runtime.DisposableEffect(Unit) {
+        Net.brainInstances++
+        onDispose { Net.brainInstances-- }
+    }
     var frame by remember { mutableLongStateOf(0L) }
     val p = pal
     // на паузе и во сне рендер вполсилы — кадры даром не жжём
@@ -151,6 +155,9 @@ private fun DrawScope.render(p: Palette, center: Offset, scaleK: Float, light: F
     if (trackId != n.lastTrack) {
         if (n.lastTrack != null && motion) { n.rewireAt = now; n.rewireFront = 0f; n.spin.kick(0.10f) }
         n.lastTrack = trackId; n.lastTimeAt = 0L
+        n.scrubAt = 0L; n.scrubDir = 0f          // скачок времени от смены трека — не «перемотка»
+        n.dropKickAt = 0L
+        Net.spin.reset()
     }
     val tNow = Player.time.value
     if (playing && n.wasPlaying && n.lastTimeAt > 0) {                 // перемотка: время прыгнуло — мозг прокручивается в ту же сторону
@@ -177,11 +184,11 @@ private fun DrawScope.render(p: Palette, center: Offset, scaleK: Float, light: F
     val tension = max(if (playing && motion) Pulse.tension else 0f, if (playing && motion) Pulse.stTension else 0f)
     val inhale = if (playing && motion) Pulse.stInhale else 0f
     val kickAmp = if (playing && motion && kickT in 0f..0.45f) Pulse.kickPower * (0.04f + 0.08f * energy + 0.15f * drop) * (1 - kickT / 0.45f) else 0f
-    // дроп: событие из структуры или карта — взрыв, вспышка, ударная волна и толчок вращения (только через губернатор)
+    // дроп: событие из структуры или карта — взрыв и толчок вращения (только через губернатор);
+    // кувырок наклона — однократный (см. flip ниже), без накопления переворотов
     val dropHit = Pulse.stDropEvent || (Pulse.dropAt != n.lastDropAt && now - Pulse.dropAt < 400)
     if (playing && motion && dropHit) {
         n.lastDropAt = Pulse.dropAt; n.dropKickAt = now
-        n.flipFrom = n.flipTo; n.flipTo += PI.toFloat()
         n.spin.kick(0.18f); n.wave(1.5f)                                     // волна от ядра на максимальной амплитуде
         if (n.sparks.size < 200) repeat(24) {                                // искры по всей сети
             val i = (Math.random() * n.nodes.size).toInt()
@@ -218,7 +225,11 @@ private fun DrawScope.render(p: Palette, center: Offset, scaleK: Float, light: F
     val bangT = (now - n.dropKickAt) / 1000f
     val bang = if (n.dropKickAt > 0 && bangT in 0f..2.5f && motion) 0.75f * exp(-bangT * 3.2f) * cos(bangT * 10f) else 0f
     val bangFlash = if (n.dropKickAt > 0 && bangT in 0f..1f && motion) exp(-bangT * 4f) else 0f
-    val flip = n.flipFrom + (n.flipTo - n.flipFrom) * ease(((now - n.dropKickAt) / 650f))
+    // кувырок на дропе: пол-оборота за 0.65 с и мягкий возврат за 1.5 с — к нулю, не накапливается
+    val dropT = ((now - n.dropKickAt).coerceAtLeast(0L)) / 1000f
+    val flip = if (n.dropKickAt > 0L && dropT < 2.2f)
+        PI.toFloat() * (if (dropT < 0.65f) ease(dropT / 0.65f) else 1f - smooth((dropT - 0.65f) / 1.55f))
+    else 0f
     // глитч: на сильный хэт (и на любой — во время дропа) три горизонтальные полосы сетки сдвигаются
     // пыль: во время дропа из ядра непрерывно бьёт поток точек
     if (playing && motion && drop > 0.35f && calm < 0.5f) {
@@ -308,7 +319,9 @@ private fun DrawScope.render(p: Palette, center: Offset, scaleK: Float, light: F
     // толчки (клик/смена трека/дроп) — kick() и ограничены; «вдох» перед дропом на миг замирает
     if (motion) {
         val omega = Net.spin.step(dt, playing, bass, calm, tension) * frozen * (1f - 0.8f * n.sleep) * (1f - n.poseK) * (1f - 0.9f * inhale)
-        n.angle += omega * dt + n.scrubDir * 16f * scrubK * scrubK * dt      // прокрутка при перемотке — руками пользователя
+        n.lastGovernorOmega = omega
+        n.angle += omega * dt + n.scrubDir * 3f * scrubK * scrubK * dt
+        if (abs(n.angle) > 2 * PI.toFloat()) n.angle %= (2 * PI.toFloat())      // угол не должен расти бесконечно
     }
 
     val w = size.width; val h = size.height
@@ -345,6 +358,20 @@ private fun DrawScope.render(p: Palette, center: Offset, scaleK: Float, light: F
     val ca = cos(yaw); val sa = sin(yaw)
     val ct = cos(tilt); val stt = sin(tilt)
     val cr = cos(roll); val sr = sin(roll)
+    if (Net.debugSpin) {
+        val yawTotal = yaw + roll
+        val dYaw = if (n.lastYawAt > 0) (yawTotal - n.lastYaw) / max(1, now - n.lastYawAt) * 1000f else 0f
+        n.lastYaw = yawTotal; n.lastYawAt = now
+        if (now - n.lastSpinLog > 500) {
+            n.lastSpinLog = now
+            val pos = melos.player.Player.positionMs()
+            melos.host.Log.i("Spin",
+                "трек=${(trackId ?: "-").takeLast(8)} pos=${pos / 1000}с dt=${"%.3f".format(dt)} omega=${"%.3f".format(n.lastGovernorOmega)} " +
+                    "реал=${"%.2f".format(dYaw)} yaw=${"%.2f".format(n.yaw)} flip=${"%.2f".format(flip)} tilt=${"%.2f".format(n.tiltOff)} " +
+                    "bass=${"%.2f".format(bass)} level=${"%.2f".format(level)} calm=${"%.2f".format(calm)} tens=${"%.2f".format(tension)} " +
+                    "фаза=${Pulse.stPhase} poseK=${"%.2f".format(poseK)} стат=${melos.player.Player.status.value} мозга=${Net.brainInstances} пульс=${Net.pulseDrivers}")
+        }
+    }
 
     val GW = ceil(w / cell).toInt() + 2; val GH = ceil(h / cell).toInt() + 2; val gsize = GW * GH
     if (gridV.size < gsize) { gridV = FloatArray(gsize); gridD = FloatArray(gsize); gridUsed = IntArray(gsize); gridN = 0 }

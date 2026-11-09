@@ -368,7 +368,10 @@ object Pulse {
 }
 
 @Composable
-fun PulseDriver() = LaunchedEffect(Unit) { while (true) withFrameNanos { Pulse.tick(it) } }
+fun PulseDriver() = LaunchedEffect(Unit) {
+    Net.pulseDrivers++
+    try { while (true) withFrameNanos { Pulse.tick(it) } } finally { Net.pulseDrivers-- }
+}
 
 // Фон окна: мягкие пятна цветов обложки медленно плывут, сверху — редкое точечное поле, как небо мозга.
 // На бит по полю проходит волна. Без металла и бликов — только свет и точки.
