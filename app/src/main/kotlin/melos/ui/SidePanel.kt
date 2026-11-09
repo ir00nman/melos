@@ -1,23 +1,35 @@
 package melos.ui
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -33,33 +45,103 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.zIndex
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import com.badmanners.murglar.lib.core.model.tag.Lyrics
+import com.badmanners.murglar.lib.core.model.track.BaseTrack
 import melos.lyrics.LyricsService
 import melos.player.Player
+import kotlin.math.roundToInt
 
+/** Текст играющего трека, уже найденный (или ищется): один на панель, чтобы переключение вкладок не искало заново. */
+private class LyricsState(val lyrics: Lyrics?, val loading: Boolean)
+
+@Composable
+private fun rememberLyrics(track: BaseTrack?): LyricsState {
+    var lyrics by remember(track?.mediaId) { mutableStateOf<Lyrics?>(null) }
+    var loading by remember(track?.mediaId) { mutableStateOf(track != null) }
+    LaunchedEffect(track?.mediaId) {
+        val t = track ?: return@LaunchedEffect
+        lyrics = LyricsService.find(t); loading = false
+    }
+    return LyricsState(lyrics, loading)
+}
+
+/** Постоянная правая панель с переключением текста и очереди. */
 @Composable
 fun SidePanel(modifier: Modifier = Modifier) {
     val p = pal
-    Column(modifier.clip(R.lg).background(p.card).border(1.dp, p.bd, R.lg).padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        // view-tabs: единый сегмент-компонент — явная заливка выбранного, общий радиус
-        Seg(listOf(Side.QUEUE to "Очередь", Side.LYRICS to "Текст"), Nav.side ?: Side.QUEUE, { Nav.side = it }, Modifier.fillMaxWidth(), small = true)
-        when (Nav.side) {
-            Side.QUEUE -> QueueView()
-            Side.LYRICS -> LyricsView()
-            null -> {}
+    val side = Nav.side
+    val track by Player.current.collectAsState()
+    val time by Player.time.collectAsState()
+    val queue by Player.queue.collectAsState()
+    val ls = rememberLyrics(track)
+
+    Column(modifier.clip(R.lg).background(p.card).border(1.dp, p.bd, R.lg).padding(10.dp)) {
+        SideToggle(side, { Nav.showSide(it) }, Modifier.fillMaxWidth(), queueCount = queue.size.takeIf { it > 0 })
+        Spacer(Modifier.height(8.dp))
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            if (Look.motion) AnimatedContent(side, transitionSpec = {
+                val dir = if (targetState.ordinal > initialState.ordinal) 1 else -1
+                (slideInHorizontally(tween(320, easing = EaseLux)) { dir * it / 5 } + fadeIn(tween(220)))
+                    .togetherWith(slideOutHorizontally(tween(220, easing = EaseLux)) { -dir * it / 5 } + fadeOut(tween(160)))
+            }, label = "side") { s -> SideBody(s, ls, time) }
+            else SideBody(side, ls, time)
+        }
+    }
+}
+
+@Composable
+private fun SideBody(side: Side, ls: LyricsState, time: Long) = Box(Modifier.fillMaxSize()) {
+    when (side) {
+        Side.LYRICS -> LyricsView(ls, time)
+        Side.QUEUE -> Column(Modifier.fillMaxSize()) { QueueView() }
+    }
+}
+
+/**
+ * Переключатель «Текст | Очередь»: пилюля с ползунком-«таблеткой», который плавно переезжает к выбранному
+ * (а не перекрашивает сегменты). Иконка + подпись; у очереди — число треков приглушённым.
+ */
+@Composable
+fun SideToggle(selected: Side, onSelect: (Side) -> Unit, modifier: Modifier = Modifier, queueCount: Int? = null) {
+    val p = pal
+    val items = listOf(Side.LYRICS to ("Текст" to Ic.lyrics), Side.QUEUE to ("Очередь" to Ic.queue))
+    val idx = items.indexOfFirst { it.first == selected }.coerceAtLeast(0)
+    val pos by animateFloatAsState(idx.toFloat(), tween(if (Look.motion) 320 else 0, easing = EaseLux), label = "thumb")
+    BoxWithConstraints(modifier.height(38.dp).clip(R.pill).background(p.chip).border(1.dp, p.bd, R.pill).padding(3.dp)) {
+        val cell = maxWidth / items.size
+        val density = androidx.compose.ui.platform.LocalDensity.current
+        val cellPx = with(density) { cell.toPx() }
+        // ползунок: акцентная «таблетка» едет под выбранной подписью
+        Box(Modifier.offset { IntOffset((pos * cellPx).roundToInt(), 0) }.width(cell).fillMaxHeight().clip(R.pill).background(p.acc))
+        Row(Modifier.fillMaxSize()) {
+            items.forEach { (value, item) ->
+                val (label, icon) = item
+                val on = value == selected
+                val src = remember { MutableInteractionSource() }
+                val hovered by src.collectIsHoveredAsState()
+                val ink by animateColorAsState(if (on) p.accInk else if (hovered) p.txt else p.txt.copy(alpha = .72f), tween(220, easing = EaseLux))
+                Row(Modifier.weight(1f).fillMaxHeight().clip(R.pill).hoverable(src).clickable(src, null) { onSelect(value) }
+                    .pointerHoverIcon(PointerIcon.Hand),
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally)) {
+                    Icon(icon, ink, size = 15.dp)
+                    Txt(label, color = ink, style = T.small.copy(fontSize = 13.sp, fontWeight = if (on) FontWeight.SemiBold else FontWeight.Medium))
+                    if (value == Side.QUEUE && queueCount != null)
+                        Txt(queueCount.toString(), color = ink.copy(alpha = .65f), style = T.num.copy(fontSize = 11.5.sp))
+                }
+            }
         }
     }
 }
@@ -69,17 +151,8 @@ private fun QueueView() {
     val p = pal
     val queue by Player.queue.collectAsState()
     val index by Player.index.collectAsState()
-    val context by Player.context.collectAsState()
-    val radio by Player.radio.collectAsState()
     val state = rememberLazyListState()
     LaunchedEffect(index) { if (index > 1) state.animateScrollToItem((index - 1).coerceAtLeast(0)) }
-    Row2(Modifier.padding(horizontal = 4.dp)) {
-        Column(Modifier.weight(1f)) {
-            Txt(context ?: "Очередь", style = T.title)
-            Txt(if (radio != null) "Волна · подгружается сама" else "${queue.size} треков", color = p.muted, style = T.small)
-        }
-        if (queue.size > index + 1) Pill("Очистить дальше") { Player.clearUpcoming() }
-    }
     if (queue.isEmpty()) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Empty("Очередь пуста. «Сыграть следующим» и «В очередь» — в меню трека.") }
     else {
         // drag будущих треков за ручку: плавный сдвиг элементов на место перетаскиваемого
@@ -130,25 +203,21 @@ private fun QueueView() {
                     }
                 }
             }
+            // низ списка растворяется в карточке — как у текста
+            Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(20.dp)
+                .background(Brush.verticalGradient(listOf(Color.Transparent, p.card))))
         }
     }
 }
 
 @Composable
-private fun LyricsView() {
+private fun LyricsView(ls: LyricsState, time: Long) {
     val p = pal
     val track by Player.current.collectAsState()
-    val time by Player.time.collectAsState()
-    var lyrics by remember(track?.mediaId) { mutableStateOf<Lyrics?>(null) }
-    var loading by remember(track?.mediaId) { mutableStateOf(true) }
-    LaunchedEffect(track?.mediaId) {
-        val t = track ?: run { loading = false; return@LaunchedEffect }
-        lyrics = LyricsService.find(t); loading = false
-    }
-    val l = lyrics
+    val l = ls.lyrics
     when {
         track == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Empty("Включите трек — здесь появится текст") }
-        loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Txt("Ищу текст…", color = p.muted) }
+        ls.loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Txt("Ищу текст…", color = p.muted) }
         l == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Empty("Текста не нашлось ни у сервиса, ни в LRCLIB") }
         l.synced != null -> {
             val lines = l.synced!!.lines
@@ -165,7 +234,7 @@ private fun LyricsView() {
                         Txt(line.text?.ifBlank { "♪" } ?: "♪", Modifier.fillMaxWidth().clip(R.sm)
                             .clickable(src, indication = null) { Player.seek(line.startMillis) }.padding(4.dp),
                             color, T.body.copy(fontSize = 16.sp, lineHeight = 24.sp, fontWeight = if (on) FontWeight.Bold else FontWeight.Medium,
-                                textAlign = androidx.compose.ui.text.style.TextAlign.Center), maxLines = 4)
+                                textAlign = TextAlign.Center), maxLines = 4)
                     }
                 }
                 Box(Modifier.align(Alignment.TopCenter).fillMaxWidth().height(28.dp)
@@ -175,9 +244,8 @@ private fun LyricsView() {
             }
         }
         else -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(6.dp)) {
-            Txt(l.plain, Modifier.fillMaxWidth(), style = T.body.copy(fontSize = 14.sp, lineHeight = 22.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center), maxLines = Int.MAX_VALUE)
+            Txt(l.plain, Modifier.fillMaxWidth(), style = T.body.copy(fontSize = 14.sp, lineHeight = 22.sp, textAlign = TextAlign.Center), maxLines = Int.MAX_VALUE)
             Spacer(Modifier.height(20.dp))
         }
     }
 }
-

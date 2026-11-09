@@ -157,7 +157,7 @@ fun PrimaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifi
 
 @Composable
 // Secondary: контур 1 dp, прозрачная заливка; одна высота с primary.
-fun Btn(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, icon: ImageVector? = null, danger: Boolean = false, enabled: Boolean = true) {
+fun Btn(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, icon: ImageVector? = null, danger: Boolean = false, enabled: Boolean = true, wrap: Boolean = false) {
     val p = pal
     Row(
         modifier.clip(R.pill).background(p.card2).border(1.dp, if (danger) p.critical.copy(alpha = .6f) else p.bd, R.pill)
@@ -167,7 +167,8 @@ fun Btn(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, icon: 
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         icon?.let { Icon(it, if (danger) p.critical else p.txt, size = 18.dp) }
-        Txt(text, color = if (danger) p.critical else p.txt, style = T.body.copy(fontWeight = FontWeight.SemiBold, fontSize = 14.sp))
+        Txt(text, Modifier.weight(1f, fill = false), color = if (danger) p.critical else p.txt,
+            style = T.body.copy(fontWeight = FontWeight.SemiBold, fontSize = 14.sp), maxLines = if (wrap) 2 else 1)
     }
 }
 
@@ -181,7 +182,7 @@ fun Pill(text: String, modifier: Modifier = Modifier, on: Boolean = false, icon:
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp),
     ) {
         icon?.let { Icon(it, if (on) p.acc else p.txt.copy(alpha = .8f), size = 16.dp) }
-        Txt(text, Modifier.widthIn(max = 220.dp), color = if (on) p.txt else p.txt.copy(alpha = .86f), style = T.body.copy(fontSize = 13.5.sp))
+        Txt(text, Modifier.widthIn(max = 280.dp), color = if (on) p.txt else p.txt.copy(alpha = .86f), style = T.body.copy(fontSize = 13.5.sp), maxLines = 2)
     }
 }
 

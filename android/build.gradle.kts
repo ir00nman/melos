@@ -38,7 +38,7 @@ val sharedExcludes = listOf(
     // свои реализации тех же пакетов:
     "melos/core/Paths.kt",
     "melos/host/Chromium.kt", "melos/host/EmbeddedWebView.kt", "melos/host/HttpNetwork.kt",
-    "melos/host/Plugins.kt", "melos/host/Updater.kt",
+    "melos/host/Plugins.kt", "melos/host/Updater.kt", "melos/host/MacMediaHub.kt",
     "melos/player/VlcEngine.kt", "melos/player/TrackAnalysis.kt",
     "melos/player/Analyzer.kt", "melos/player/EqProbe.kt", "melos/player/AudioBench.kt", "melos/player/Limiter.kt",
     // десктоп-фичи: загрузки — заглушка в android/src, локальная библиотека — позже

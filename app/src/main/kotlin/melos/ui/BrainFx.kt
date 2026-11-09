@@ -1,8 +1,6 @@
 package melos.ui
 
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -10,42 +8,20 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import kotlin.math.PI
 import kotlin.math.cos
-import kotlin.math.floor
 import kotlin.math.sin
 
-/* ---------- Пикселизация (dot-matrix, как в Nothing OS) ---------- */
-
-object PixelFx {
-    /** Размер ячейки в px. На нарастании крупнеет (картинка «собирается» в крупные пиксели), на дропе щёлкает в мелкую. */
-    fun cell(basePx: Float, tension: Float, drop: Float, inhale: Float): Float {
-        val coarse = 1f + 0.8f * tension + 0.5f * inhale   // до ~2.3x
-        val fine = 1f - 0.35f * drop                        // на ударе мельче
-        return (basePx * coarse * fine).coerceAtLeast(2f)
-    }
-    fun snap(v: Float, cell: Float): Float = (floor(v / cell) + 0.5f) * cell
-    /** Яркость ступенями (по умолчанию 5 уровней) — даёт «аппаратный» вид. */
-    fun quant(a: Float, steps: Int = 5): Float = (floor(a.coerceIn(0f, 1f) * (steps - 1) + 0.5f)) / (steps - 1)
-}
-
-/** Один пиксель-квадрат с лёгким круглым скруглением. gap — зазор между ячейками (0..0.4 от ячейки). */
-fun DrawScope.drawPixel(center: Offset, cell: Float, color: Color, alpha: Float, gap: Float = 0.18f) {
-    val side = cell * (1f - gap)
-    drawRoundRect(
-        color = color.copy(alpha = alpha),
-        topLeft = Offset(center.x - side / 2f, center.y - side / 2f),
-        size = Size(side, side),
-        cornerRadius = CornerRadius(side * 0.18f)
-    )
-}
-
 /* ---------- Свет: ядро и лучи ---------- */
+// ВАЖНО: свет должен быть ТОНКИМ и МЯГКИМ. Широкие плоские серые полосы с чёткой границей — это брак.
+// Свет здесь ЛЁГКИЙ дополнительный слой поверх прежнего «мозга»: визуал самого «мозга» не менять.
 
+/** Мягкое ядро. radius = ~0.5 * радиус фигуры (НЕ больше), к краю alpha -> 0, фон карточки остаётся тёмным. */
 fun DrawScope.drawCoreGlow(center: Offset, radius: Float, color: Color, intensity: Float) {
     val a = intensity.coerceIn(0f, 1.5f)
     drawCircle(
         brush = Brush.radialGradient(
-            0f to color.copy(alpha = 0.55f * a),
-            0.35f to color.copy(alpha = 0.22f * a),
+            0f to color.copy(alpha = (0.26f * a).coerceAtMost(0.5f)),
+            0.25f to color.copy(alpha = 0.15f * a),
+            0.55f to color.copy(alpha = 0.04f * a),
             1f to Color.Transparent,
             center = center, radius = radius
         ),
@@ -59,69 +35,63 @@ private fun hash01(i: Int): Float {
     return ((x xor (x ushr 16)) and 0xFFFF) / 65535f
 }
 
-// один Path на все лучи — без аллокаций в кадре (перф-бюджет: лучей ≤ 20)
+// один Path на все слои — без аллокаций в кадре
 private val rayPath = Path()
 
 /**
- * Лучи из ядра. intensity — общая яркость (на подэкранах 0.25–0.4, на Главной 1).
- * tension: лучи сужаются и вытягиваются («сходятся»). drop: лучи расходятся веером и вспыхивают.
- * inhale: на миг втягиваются перед дропом. calm: лучи гаснут.
+ * Мягкие лучи из ядра. figureR — радиус фигуры в px (лучи 1.05–1.55 * figureR, не длиннее).
+ * intensity: Главная 1.0, подэкраны 0.25–0.35. Лучей до 6, при intensity < 0.4 — не больше 4.
+ * Каждый луч = 4 слоя узких треугольников разной ширины и прозрачности (мягкий край вместо жёсткой полосы),
+ * градиент по длине с затуханием в ноль; ширина у основания 6–14 px (в px, а не в долях радиуса!).
+ * tension: лучи сужаются и вытягиваются. drop: вспышка, шире и ярче на ~1 c. inhale: втягиваются. calm: гаснут.
  */
 fun DrawScope.drawLightRays(
     center: Offset,
-    innerR: Float,
-    outerR: Float,
+    figureR: Float,
     timeSec: Float,
     color: Color,
     intensity: Float,
-    rays: Int = 16,
+    rays: Int = 6,
     tension: Float = 0f,
     drop: Float = 0f,
     inhale: Float = 0f,
     calm: Float = 0f,
     bass: Float = 0f
 ) {
-    val master = intensity * (1f - 0.7f * calm) * (1f - 0.6f * inhale) * (1f + 0.8f * drop)
+    val master = intensity * (1f - 0.75f * calm) * (1f - 0.6f * inhale) * (1f + 0.9f * drop)
     if (master <= 0.01f) return
-    val n = rays.coerceAtMost(20)
-    for (i in 0 until n) {
+    val count = if (intensity < 0.4f) minOf(rays, 4) else rays
+    val widths = floatArrayOf(1.0f, 0.62f, 0.34f, 0.16f)        // доли ширины слоя
+    val alphas = floatArrayOf(0.012f, 0.018f, 0.027f, 0.040f)   // прозрачность слоя (суммируется в центре луча)
+    for (i in 0 until count) {
         val h = hash01(i)
-        val ang = (i.toFloat() / n) * 2f * PI.toFloat() + timeSec * (0.03f + 0.04f * h) + h * 2f
-        val len = outerR * (0.55f + 0.45f * h) * (1f + 0.35f * tension + 0.45f * drop + 0.25f * bass) * (1f - 0.5f * inhale)
-        val half = (0.010f + 0.012f * h) * (1f - 0.55f * tension) * (1f + 2.2f * drop)   // полуширина в радианах
+        val ang = (i.toFloat() / count) * 2f * PI.toFloat() + timeSec * (0.025f + 0.03f * h) + h * 0.8f
+        val len = figureR * (1.05f + 0.5f * h) * (1f + 0.25f * tension + 0.5f * drop + 0.2f * bass) * (1f - 0.5f * inhale)
+        val w0 = (6f + 8f * h) * (1f - 0.5f * tension) * (1f + 1.2f * drop)   // px у основания
         val dx = cos(ang); val dy = sin(ang)
         val px = -dy;      val py = dx
-        val base = Offset(center.x + dx * innerR, center.y + dy * innerR)
+        val start = figureR * 0.12f
+        val base = Offset(center.x + dx * start, center.y + dy * start)
         val tip = Offset(center.x + dx * len, center.y + dy * len)
-        val w = innerR * half * 6f + 1.5f
-        rayPath.reset()
-        rayPath.moveTo(base.x + px * w, base.y + py * w)
-        rayPath.lineTo(tip.x, tip.y)
-        rayPath.lineTo(base.x - px * w, base.y - py * w)
-        rayPath.close()
-        val a = (0.10f + 0.10f * h) * master
-        drawPath(
-            path = rayPath,
-            brush = Brush.linearGradient(
-                0f to color.copy(alpha = a.coerceIn(0f, 0.6f)),
-                1f to Color.Transparent,
-                start = base, end = tip
-            ),
-            blendMode = BlendMode.Plus
-        )
-    }
-}
-
-/** Кольцо-ударная волна из квадратных пикселей. phase01: 0 -> 1 за ~0.9 c. */
-fun DrawScope.drawPixelShockwave(center: Offset, maxR: Float, phase01: Float, cell: Float, color: Color, strength: Float) {
-    if (phase01 <= 0f || phase01 >= 1f) return
-    val r = maxR * (1f - (1f - phase01) * (1f - phase01))   // ease-out
-    val n = (2f * PI.toFloat() * r / cell).toInt().coerceIn(12, 240)
-    val alpha = (1f - phase01) * strength.coerceIn(0f, 1f)
-    for (k in 0 until n) {
-        val a = k.toFloat() / n * 2f * PI.toFloat()
-        val x = PixelFx.snap(center.x + cos(a) * r, cell)
-        val y = PixelFx.snap(center.y + sin(a) * r, cell)
-        drawPixel(Offset(x, y), cell, color, PixelFx.quant(alpha))
+        val a = (1f + 0.5f * h)
+        for (l in widths.indices) {
+            val w = w0 * widths[l]
+            rayPath.reset()
+            rayPath.moveTo(base.x + px * w, base.y + py * w)
+            rayPath.lineTo(tip.x, tip.y)
+            rayPath.lineTo(base.x - px * w, base.y - py * w)
+            rayPath.close()
+            val al = (alphas[l] * a * master).coerceIn(0f, 0.08f)
+            drawPath(
+                path = rayPath,
+                brush = Brush.linearGradient(
+                    0f to color.copy(alpha = al),
+                    0.45f to color.copy(alpha = al * 0.35f),
+                    1f to Color.Transparent,
+                    start = base, end = tip
+                ),
+                blendMode = BlendMode.Plus
+            )
+        }
     }
 }

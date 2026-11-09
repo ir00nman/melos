@@ -14,8 +14,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -46,6 +48,8 @@ import melos.host.Toasts
 import melos.library.Library
 import melos.library.Snap
 import melos.player.Player
+import melos.player.Status
+import androidx.compose.ui.window.Popup
 import kotlinx.coroutines.launch
 
 // Постраничная загрузка содержимого узла, как в Murglar: страницы до пустой, «Ещё» — следующая.
@@ -148,6 +152,7 @@ fun NodeScreen(node: Node) {
 @Composable
 fun TrackScreen(track: BaseTrack) {
     val p = pal
+    val current by Player.current.collectAsState()
     val service = Services.forTrack(track)
     val resolver = service?.murglar?.nodeResolver
     val related = remember(track.mediaId) { runCatching { resolver?.getRelatedNodePaths(track) }.getOrNull().orEmpty() }
@@ -169,42 +174,75 @@ fun TrackScreen(track: BaseTrack) {
 
     ScrollList(Modifier.fillMaxSize()) {
         item {
-            // обложка и блок по верху; высота обложки ≈ заголовок + подзаголовок + ряды 1–2
-            Row(Modifier.fillMaxWidth().padding(bottom = 18.dp).enter(0, track.mediaId), horizontalArrangement = Arrangement.spacedBy(24.dp), verticalAlignment = Alignment.Top) {
-                Cover(track.bigCoverUrl ?: track.smallCoverUrl, 176.dp, shape = R.lg)
+            // обложка ≈240 dp по верху; справа — не выше её + запас
+            Row(Modifier.fillMaxWidth().padding(bottom = 8.dp).enter(0, track.mediaId), horizontalArrangement = Arrangement.spacedBy(24.dp), verticalAlignment = Alignment.Top) {
+                Cover(track.bigCoverUrl ?: track.smallCoverUrl, 240.dp, shape = R.lg)
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Row2 { Cap("Трек"); service?.let { ServiceLogo(it.id, 14.dp); Txt(it.name, color = p.muted, style = T.small) } }
                     Txt(track.fullTitle, style = T.h1.copy(fontSize = 24.sp, lineHeight = 28.sp), maxLines = 2)
-                    // подзаголовок: «исполнители · альбом · год» одной строкой (полный текст — в подсказке),
-                    // жанр и длительность — отдельные мелкие чипы, без оторванных «хвостов»
+                    // «исполнители · альбом · год» одной строкой (полный текст — в подсказке);
+                    // жанр и длительность — чипы без обрезки: не влезли — переносятся на новую строку
                     val meta = listOfNotNull(track.artists.ifEmpty { null }, track.albumName, track.albumReleaseDate?.year?.toString()).joinToString(" · ")
-                    Row2(Modifier.fillMaxWidth()) {
+                    FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         HoverTip(meta) {
-                            Txt(meta, Modifier.weight(1f, fill = false), color = p.muted, maxLines = 1)
+                            Txt(meta, Modifier.widthIn(max = 520.dp), color = p.muted, maxLines = 1)
                         }
                         track.genre?.takeIf { it.isNotBlank() }?.let { g ->
-                            Box(Modifier.clip(R.sm).background(p.chip).border(1.dp, p.bd, R.sm).padding(horizontal = 8.dp, vertical = 3.dp)) { Txt(g, color = p.muted, style = T.small, maxLines = 1) }
+                            Box(Modifier.clip(R.sm).background(p.chip).border(1.dp, p.bd, R.sm).padding(horizontal = 8.dp, vertical = 3.dp)) { Txt(g, color = p.muted, style = T.small, maxLines = 2) }
                         }
                         if (track.durationMs > 0) Box(Modifier.clip(R.sm).background(p.chip).border(1.dp, p.bd, R.sm).padding(horizontal = 8.dp, vertical = 3.dp)) {
-                            Txt(fmt(track.durationMs), color = p.muted, style = T.num)
+                            Txt(fmt(track.durationMs), color = p.muted, style = T.num, maxLines = 2)
                         }
                     }
                     track.subtitle?.takeIf { it.isNotBlank() }?.let { Txt(it, color = p.warn, style = T.small) }
-                    // три ряда, одна высота и один зазор: играть/лайки → сохранить/открыть → ссылки
+                    // дублей с плеером нет: у играющего трека — только метка и «⋯», лайк/дизлайк/очередь — там
+                    val st by Player.status.collectAsState()
+                    val playingNow = current?.mediaId == track.mediaId && st == Status.PLAYING
                     Column(Modifier.padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            // как в сервисах: трек, а за ним — похожие
-                            PrimaryButton("Слушать", { Player.playList(listOf(track) + similar.filter { it.mediaId != track.mediaId }, 0, track.title); BrainBus.wave() }, icon = Ic.play)
-                            Btn("Следующим", { Player.playNext(track) }, icon = Ic.playNext)
-                            Btn("В очередь", { Player.enqueue(listOf(track)) }, icon = Ic.plus)
-                            RoundButton(if (liked) Ic.heartOn else Ic.heart, { Player.toggleLike(track); if (!liked) BrainBus.heart() }, size = 44.dp, active = liked)
-                            val disliked = Library.dislikes.items.collectAsState().value.let { Library.isDisliked(track) }
-                            RoundButton(if (disliked) Ic.dislikeOn else Ic.dislike, { Player.toggleDislike(track) }, size = 44.dp, active = disliked)
+                            if (playingNow) {
+                                Box(Modifier.heightIn(min = 44.dp).clip(R.pill).background(p.acc.copy(alpha = .14f)).border(1.dp, p.acc.copy(alpha = .5f), R.pill)
+                                    .padding(horizontal = 16.dp, vertical = 11.dp), contentAlignment = Alignment.Center) {
+                                    Row2(gap = 8.dp) { Bars(true, p.acc); Txt("Играет", color = p.acc, style = T.body.copy(fontWeight = FontWeight.SemiBold, fontSize = 15.sp)) }
+                                }
+                                var more by remember { mutableStateOf(false) }
+                                Box {
+                                    IconBtn(Ic.more, { more = true })
+                                    if (more) Popup(alignment = Alignment.BottomStart, onDismissRequest = { more = false },
+                                        properties = androidx.compose.ui.window.PopupProperties(focusable = true)) {
+                                        val disliked = Library.dislikes.items.collectAsState().value.let { Library.isDisliked(track) }
+                                        Card(Modifier.widthIn(min = 200.dp), color = p.card2, pad = 6.dp) {
+                                            MenuItem(if (disliked) "Убрать из «Не нравится»" else "Не нравится", on = disliked) {
+                                                Player.toggleDislike(track); more = false
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
+                                PrimaryButton("Слушать", { Player.playList(listOf(track) + similar.filter { it.mediaId != track.mediaId }, 0, track.title); BrainBus.wave() }, icon = Ic.play)
+                                HoverTip("Следующим") { IconBtn(Ic.playNext, { Player.playNext(track) }) }
+                                HoverTip("В очередь") { IconBtn(Ic.plus, { Player.enqueue(listOf(track)) }) }
+                                RoundButton(if (liked) Ic.heartOn else Ic.heart, { Player.toggleLike(track); if (!liked) BrainBus.heart() }, size = 44.dp, active = liked)
+                                // дизлайк — в «⋯», чтобы не дублировать плеер
+                                var more by remember { mutableStateOf(false) }
+                                Box {
+                                    IconBtn(Ic.more, { more = true })
+                                    if (more) Popup(alignment = Alignment.BottomStart, onDismissRequest = { more = false },
+                                        properties = androidx.compose.ui.window.PopupProperties(focusable = true)) {
+                                        val disliked = Library.dislikes.items.collectAsState().value.let { Library.isDisliked(track) }
+                                        Card(Modifier.widthIn(min = 200.dp), color = p.card2, pad = 6.dp) {
+                                            MenuItem(if (disliked) "Убрать из «Не нравится»" else "Не нравится", on = disliked) {
+                                                Player.toggleDislike(track); more = false
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Btn("Сохранить на устройство", { saveToDevice(listOf(track)) }, icon = Ic.download)
+                            Btn("Сохранить на устройство", { saveToDevice(listOf(track)) }, icon = Ic.download, wrap = true)
                             track.serviceUrl?.takeIf { it.startsWith("http") }?.let { url ->
-                                Btn("Открыть в ${service?.name ?: "сервисе"}", { melos.core.Browse.url(url) }, icon = Ic.link)
+                                Btn("Открыть в ${service?.let { svc -> serviceNameIn[svc.name] ?: svc.name } ?: "сервисе"}", { melos.core.Browse.url(url) }, icon = Ic.link, wrap = true)
                             }
                         }
                         // исполнители, альбом, волна — переходы, как ссылки на странице трека в сервисе
@@ -220,10 +258,8 @@ fun TrackScreen(track: BaseTrack) {
             val album = r.type == NodeType.ALBUM
             val title = if (album) "Из альбома «${r.name}»" else r.name
             stickyHeader(key = "h${r.path}") {
-                // ленточный фон без резкой полосы: к низу растворяется, левый край — по строкам списка
-                Row2(Modifier.fillMaxWidth().background(androidx.compose.ui.graphics.Brush.verticalGradient(
-                    listOf(p.card.copy(alpha = 0.97f), p.card.copy(alpha = 0.88f), p.card.copy(alpha = 0f))))
-                    .padding(start = 8.dp, top = 10.dp, bottom = 8.dp)) {
+                // без подложки: фон карточки, левый край — по строкам списка
+                Row2(Modifier.fillMaxWidth().background(p.card).padding(start = 8.dp, top = 4.dp, bottom = 8.dp)) {
                     Cap(title)
                     Spacer(Modifier.weight(1f))
                     if (c.items.isNotEmpty()) Pill(if (album) "Открыть альбом" else "Все", icon = Ic.right) { Nav.go(Screen.Open(c.node)) }
@@ -239,6 +275,9 @@ fun TrackScreen(track: BaseTrack) {
         }
     }
 }
+
+// «Открыть в Яндекс Музыке / VK Музыке» — родительный падеж для кнопки страницы трека
+private val serviceNameIn = mapOf("Яндекс Музыка" to "Яндекс Музыке", "VK Музыка" to "VK Музыке")
 
 private fun relIcon(r: NamedPath) = when (r.type) { NodeType.ARTIST -> Ic.user; NodeType.ALBUM -> Ic.disc; NodeType.RADIO -> Ic.wave; else -> Ic.link }
 

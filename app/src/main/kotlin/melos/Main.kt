@@ -38,6 +38,7 @@ fun main() {
     Services.load()
     Player.init()
     melos.library.ServiceLikes.start()
+    melos.host.MacMediaHub.init()          // macOS: Now Playing + медиа-клавиши
     System.getenv("MELOS_VOLUME")?.toIntOrNull()?.let { Player.volume.value = it }
     System.getenv("MELOS_PLAY")?.let(::demoPlay)
     System.getenv("MELOS_WEBTEST")?.let { url ->               // отладка: ловит ли окно входа адрес с токеном
@@ -143,7 +144,10 @@ fun main() {
             }.start()
     }
     application {
-        val state = rememberWindowState(size = DpSize(1280.dp, 820.dp))
+        // отладка скриншотов узкого окна: MELOS_SIZE=980x640
+        val winSize = System.getenv("MELOS_SIZE")?.split('x')?.mapNotNull { it.toIntOrNull() }
+            ?.takeIf { it.size == 2 && it.all { n -> n >= 200 } }?.let { DpSize(it[0].dp, it[1].dp) } ?: DpSize(1280.dp, 820.dp)
+        val state = rememberWindowState(size = winSize)
         Window(
             onCloseRequest = { Player.shutdown(); melos.host.Chromium.shutdown(); exitApplication() },
             state = state,

@@ -53,8 +53,9 @@ object Nav {
     /** Убрать текущий экран без «вперёд» — он был промежуточным (например, открыл волну и сразу ушёл). */
     fun drop() { if (canBack) stack.removeAt(stack.lastIndex) }
 
-    var side by mutableStateOf(Settings.store.string("side")?.let { runCatching { Side.valueOf(it) }.getOrNull() })
-    fun toggleSide(s: Side) { side = if (side == s) null else s; Settings.store.put("side", side?.name) }
+    /** Правая панель открыта всегда; здесь — её вкладка (запоминается). */
+    var side by mutableStateOf(Settings.store.string("side")?.let { runCatching { Side.valueOf(it) }.getOrNull() } ?: Side.QUEUE)
+    fun showSide(s: Side) { side = s; Settings.store.put("side", s.name) }
 
     /** Раздел левого меню, как в Murglar: свой (Melos) или id сервиса — справа от столбика показывается его меню. */
     var section by mutableStateOf(Settings.store.string("nav.section") ?: MELOS_SECTION)

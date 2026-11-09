@@ -78,7 +78,7 @@ fun App(topInset: Int = 0) {
                 Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Sidebar(Modifier.fillMaxHeight(), rail)
                     Stage(Modifier.weight(1f).fillMaxHeight())
-                    if (Nav.side != null) SidePanel(Modifier.width(if (rail) 320.dp else 360.dp).fillMaxHeight().enter(0, Nav.side))
+                    SidePanel(Modifier.width(if (rail) 320.dp else 360.dp).fillMaxHeight().enter(0))
                 }
                 PlayerBar()
             }

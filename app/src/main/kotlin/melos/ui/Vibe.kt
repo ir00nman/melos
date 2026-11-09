@@ -395,30 +395,26 @@ fun Backdrop(modifier: Modifier = Modifier) {
                 Triple(p.c3, Offset(w * (0.55f + 0.10f * sin(t * 0.07f)), h * (0.92f + 0.06f * cos(t * 0.12f))), 0.22f),
             )
             blobs.forEach { (c, o, a) ->
-                val alpha = (a + Pulse.bass * 0.08f) * k * calmK
+                val alpha = (a + Pulse.bass * 0.08f) * k
                 drawCircle(Brush.radialGradient(listOf(c.copy(alpha = alpha), c.copy(alpha = alpha * 0.35f), Color.Transparent), o, r), r, o)
             }
         }
-        // точечное поле: два пакетных вызова вместо тысяч отдельных прямоугольников; на бит проходит волна;
-        // яркость — ступенями (5 уровней), в провале поле гаснет
+        // точечное поле: два пакетных вызова вместо тысяч отдельных прямоугольников; на бит проходит волна
         if (Look.brain) {
             val step = 22.dp.toPx(); val dot = 1.6.dp.toPx()
             val beat = Pulse.beat()
-            val calmK = 1f - 0.85f * Pulse.stCalm
-            if (calmK > 0.03f) {
-                val center = Offset(size.width * 0.5f, size.height * 0.42f)
-                val front = (1 - beat) * max(size.width, size.height) * 0.9f
-                val band = 40.dp.toPx()
-                val cols = (size.width / step).toInt() + 1; val rows = (size.height / step).toInt() + 1
-                val base = ArrayList<Offset>(cols * rows); val lit = ArrayList<Offset>()
-                for (r in 0 until rows) for (c in 0 until cols) {
-                    val o = Offset(step / 2 + c * step, step / 2 + r * step)
-                    if (beat > 0f && kotlin.math.abs(hypot(o.x - center.x, o.y - center.y) - front) < band) lit += o else base += o
-                }
-                val k = (if (p.dark) 1f else 0.7f) * calmK
-                drawPoints(base, androidx.compose.ui.graphics.PointMode.Points, lerpC(p.txt, p.acc, 0.35f).copy(alpha = PixelFx.quant(0.05f * k)), dot, androidx.compose.ui.graphics.StrokeCap.Square)
-                if (lit.isNotEmpty()) drawPoints(lit, androidx.compose.ui.graphics.PointMode.Points, p.acc.copy(alpha = PixelFx.quant((0.05f + 0.22f * beat) * k)), dot * 1.3f, androidx.compose.ui.graphics.StrokeCap.Square)
+            val center = Offset(size.width * 0.5f, size.height * 0.42f)
+            val front = (1 - beat) * max(size.width, size.height) * 0.9f
+            val band = 40.dp.toPx()
+            val cols = (size.width / step).toInt() + 1; val rows = (size.height / step).toInt() + 1
+            val base = ArrayList<Offset>(cols * rows); val lit = ArrayList<Offset>()
+            for (r in 0 until rows) for (c in 0 until cols) {
+                val o = Offset(step / 2 + c * step, step / 2 + r * step)
+                if (beat > 0f && kotlin.math.abs(hypot(o.x - center.x, o.y - center.y) - front) < band) lit += o else base += o
             }
+            val k = if (p.dark) 1f else 0.7f
+            drawPoints(base, androidx.compose.ui.graphics.PointMode.Points, lerpC(p.txt, p.acc, 0.35f).copy(alpha = 0.05f * k), dot, androidx.compose.ui.graphics.StrokeCap.Square)
+            if (lit.isNotEmpty()) drawPoints(lit, androidx.compose.ui.graphics.PointMode.Points, p.acc.copy(alpha = (0.05f + 0.22f * beat) * k), dot * 1.3f, androidx.compose.ui.graphics.StrokeCap.Square)
         }
     }
 }

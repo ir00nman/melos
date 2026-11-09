@@ -253,7 +253,6 @@ object Net {
     var lastHatAt = 0L; var glitchAt = 0L                                   // глитч-срез на хэтах
     val glitchRows = FloatArray(3); val glitchShift = FloatArray(3)
     var lastCx = 0f; var lastCy = 0f
-    var shockAt = 0L                                            // пиксельная ударная волна + вспышка ядра на дропе
 
     /** Вершины на экране в координатах окна (x, y) — отсюда щупальце тянется к кнопкам плеера. */
     val nodeWin = FloatArray(64 * 2)

@@ -63,7 +63,7 @@ fun Stage(modifier: Modifier) {
     val artAlpha by androidx.compose.animation.core.animateFloatAsState(if (home) 1f else .5f, tween(400))
     Box(modifier.clip(R.lg).background(p.card).border(1.dp, p.bd, R.lg)) {
         if (Look.brain && !home) {
-            Brain(Modifier.fillMaxSize().alpha(artAlpha), interactive = false, light = 0.3f)
+            Brain(Modifier.fillMaxSize().alpha(artAlpha), interactive = false, light = 0f)
             // scrim: контент важнее фона — под текстом и кнопками «мозг» почти не просвечивает
             Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Brush.verticalGradient(
                 listOf(p.bg.copy(alpha = 0.9f), p.bg.copy(alpha = 0.82f), p.bg.copy(alpha = 0.94f)))))

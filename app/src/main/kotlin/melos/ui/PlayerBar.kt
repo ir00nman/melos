@@ -71,7 +71,7 @@ fun PlayerBar(modifier: Modifier = Modifier) {
     BoxWithConstraints(modifier.fillMaxWidth().clip(R.lg).background(p.card).border(1.dp, p.bd, R.lg)) {
         val compact = maxWidth < 1200.dp
         Column(Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, top = 6.dp, bottom = 6.dp)) {
-        // перемотка во всю ширину панели — как в Murglar: ровная, читаемая, без реакции на звук
+        // полоса перемотки во всю ширину; вкладки правой панели переключаются в самой панели
         Seek(Modifier.fillMaxWidth())
         Row(Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(18.dp)) {
@@ -104,8 +104,6 @@ fun PlayerBar(modifier: Modifier = Modifier) {
                 IconBtn(Ic.eq, { Nav.sheet = if (Nav.sheet == Sheet.EQ) null else Sheet.EQ }, active = Player.eqOn.collectAsState().value || Nav.sheet == Sheet.EQ)
                 if (!compact) SleepButton()
                 MoreMenu(withSleep = compact)
-                IconBtn(Ic.lyrics, { Nav.toggleSide(Side.LYRICS) }, active = Nav.side == Side.LYRICS)
-                IconBtn(Ic.queue, { Nav.toggleSide(Side.QUEUE) }, active = Nav.side == Side.QUEUE)
             }
         }
         }
@@ -261,29 +259,45 @@ private fun Volume() {
     val vol by Player.volume.collectAsState()
     var open by remember { mutableStateOf(false) }
     var before by remember { mutableFloatStateOf(80f) }
+    var hover by remember { mutableStateOf(false) }
+    var drag by remember { mutableStateOf(false) }
     fun set(v: Int) { Player.volume.value = v.coerceIn(0, 100) }
     val wheel = Modifier.onPointerEvent(PointerEventType.Scroll) { e -> set(Player.volume.value - (e.changes.first().scrollDelta.y * 3).roundToInt()) }
     Box {
         IconBtn(if (vol == 0) Ic.mute else Ic.volume, { open = !open }, modifier = wheel, active = open)
-        if (open) Popup(alignment = Alignment.BottomCenter, offset = IntOffset(0, -56), onDismissRequest = { open = false },
-            properties = androidx.compose.ui.window.PopupProperties(focusable = true), onPreviewKeyEvent = popupKey({ open = false })) {
-            Column(Modifier.width(64.dp).clip(R.lg).background(p.card2).border(1.dp, p.bd, R.lg).then(wheel).padding(vertical = 12.dp),
-                horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Txt("$vol", color = p.txt, style = T.num)
-                Canvas(Modifier.width(44.dp).height(170.dp).pointerHoverIcon(PointerIcon.Hand)
-                    .pointerInput(Unit) { detectTapGestures { set(((1 - it.y / size.height) * 100).roundToInt()) } }
-                    .pointerInput(Unit) { detectDragGestures { c, _ -> set(((1 - c.position.y / size.height) * 100).roundToInt()) } }) {
-                    val w = 6.dp.toPx(); val x = size.width / 2 - w / 2; val r = androidx.compose.ui.geometry.CornerRadius(w / 2)
-                    val f = Player.volume.value / 100f
-                    drawRoundRect(p.txt.copy(alpha = .16f), Offset(x, 0f), androidx.compose.ui.geometry.Size(w, size.height), r)
-                    drawRoundRect(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(lerpC(p.acc, p.c2, .6f), p.acc)), Offset(x, size.height * (1 - f)),
-                        androidx.compose.ui.geometry.Size(w, size.height * f), r)
-                    drawCircle(p.acc.copy(alpha = .25f), 11.dp.toPx(), Offset(size.width / 2, size.height * (1 - f)))
-                    drawCircle(Color.White, 7.dp.toPx(), Offset(size.width / 2, size.height * (1 - f)))
+        if (open) {
+            // попап ровно над кнопкой, зазор 8 dp по сетке (кнопка 40 + 8)
+            val dy = with(androidx.compose.ui.platform.LocalDensity.current) { -(48.dp).roundToPx() }
+            Popup(alignment = Alignment.BottomCenter, offset = IntOffset(0, dy), onDismissRequest = { open = false },
+                properties = androidx.compose.ui.window.PopupProperties(focusable = true), onPreviewKeyEvent = popupKey({ open = false })) {
+                Column(Modifier.width(56.dp).clip(R.md).background(p.card2).border(1.dp, p.bd, R.md).then(wheel)
+                    .padding(top = 12.dp, bottom = 8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // проценты: фиксированная высота — цифры не прыгают
+                    Txt("$vol", Modifier.height(16.dp), color = p.txt, style = T.num)
+                    Canvas(Modifier.width(24.dp).height(160.dp).pointerHoverIcon(PointerIcon.Hand)
+                        .onPointerEvent(PointerEventType.Enter) { hover = true }
+                        .onPointerEvent(PointerEventType.Exit) { hover = false }
+                        .pointerInput(Unit) { detectTapGestures { set(((1 - it.y / size.height) * 100).roundToInt()) } }
+                        .pointerInput(Unit) {
+                            detectDragGestures(onDragStart = { drag = true }, onDragEnd = { drag = false }, onDragCancel = { drag = false }) { c, _ ->
+                                set(((1 - c.position.y / size.height) * 100).roundToInt())
+                            }
+                        }) {
+                        val w = 4.dp.toPx(); val x = size.width / 2 - w / 2; val r = androidx.compose.ui.geometry.CornerRadius(w / 2)
+                        val f = Player.volume.value / 100f
+                        drawRoundRect(p.txt.copy(alpha = .16f), Offset(x, 0f), androidx.compose.ui.geometry.Size(w, size.height), r)
+                        drawRoundRect(p.acc, Offset(x, size.height * (1 - f)), androidx.compose.ui.geometry.Size(w, size.height * f), r)
+                        // ручка — как у перемотки: над полосой при наведении/перетаскивании
+                        if (hover || drag) {
+                            drawCircle(p.acc.copy(alpha = .25f), 12.dp.toPx(), Offset(size.width / 2, size.height * (1 - f)))
+                            drawCircle(Color.White, 7.dp.toPx(), Offset(size.width / 2, size.height * (1 - f)))
+                        }
+                    }
+                    IconBtn(if (vol == 0) Ic.mute else Ic.volume, {
+                        if (vol > 0) { before = vol.toFloat(); set(0) } else set(before.toInt().coerceAtLeast(10))
+                    })
                 }
-                IconBtn(if (vol == 0) Ic.mute else Ic.volume, {
-                    if (vol > 0) { before = vol.toFloat(); set(0) } else set(before.toInt().coerceAtLeast(10))
-                }, size = 18.dp)
             }
         }
     }
