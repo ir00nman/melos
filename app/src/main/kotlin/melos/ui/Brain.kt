@@ -306,7 +306,9 @@ private fun DrawScope.render(p: Palette, center: Offset, scaleK: Float, light: F
     val scrubK = (1 - (now - n.scrubAt) / 700f).coerceIn(0f, 1f)
     val rewireK = (1 - (now - n.rewireAt) / 900f).coerceIn(0f, 1f)
     val poseTarget = if (!playing && !loading && n.grab == null && n.absorb == null && status != Status.ERROR && now - n.errorAt > 1500) 1f else 0f
-    n.poseK += (poseTarget - n.poseK) * min(1f, dt * 1.4f)
+    // доворот к позе ограничен по скорости (~0.9 рад/с): после долгой игры дельта до π — экспонента давала пол-оборота за 0.7 с
+    val poseStep = 0.28f * dt
+    n.poseK += (poseTarget - n.poseK).coerceIn(-poseStep, poseStep)
 // вращение — только через губернатор: потолок 0.35 рад/с, толчки через kick(), «вдох» замирает
     if (motion) {
         val omega = Net.spin.step(dt, playing, bass, calm, tension) * frozen * (1f - 0.8f * n.sleep) * (1f - n.poseK) * (1f - 0.9f * inhale)

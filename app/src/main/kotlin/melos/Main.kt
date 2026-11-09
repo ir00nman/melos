@@ -51,6 +51,15 @@ fun main() {
         }.getOrNull()
     }
     Player.init()
+    System.getenv("MELOS_PAUSE_AT")?.toLongOrNull()?.let { ms ->   // отладка: дёргать паузу/плей, чтобы ловить рывки вращения
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            delay(ms)
+            repeat(3) {
+                melos.player.Player.toggle()
+                delay(6000)
+            }
+        }
+    }
     kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {   // старые загрузки (в подпапках тоже)
         runCatching {                                                               // помечаем «скачано» по совпадению с медиатекой
             delay(5000)
