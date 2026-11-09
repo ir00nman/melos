@@ -70,13 +70,11 @@ object Player {
     val tapAudio = MutableStateFlow(store.bool("tapAudio.v5") ?: true)        // звук через Melos: эквалайзер VLC применяется сразу (VLC напрямую — с задержкой буфера)
     /** Выравнивание громкости по gain/peak трека (ReplayGain / EBU R128 от сервиса). */
     val normalize = MutableStateFlow(store.bool("normalize.v2") ?: false)   // по умолчанию выкл., как исходный мастер
-    // Эквалайзер как в Murglar (тот же эквалайзер VLC): вкл/выкл отдельно от значений, пресет загружается как есть
-    // (с его усилением), движение полосы переключает на «Свой» ("custom").
+// эквалайзер как в Murglar: вкл/выкл отдельно от значений, движение полосы ставит «Свой»
     val eqOn = MutableStateFlow(store.bool("eq.on") ?: (store.string("eq.preset") != null))
     val eqPreset = MutableStateFlow(store.string("eq.preset") ?: "custom")
     val eqAmps = MutableStateFlow(store.string("eq.amps")?.split(',')?.mapNotNull { it.toFloatOrNull() } ?: List(10) { 0f })   // без округления: значения из Murglar дробные
-    // шкала усиления сменилась (раньше хранилось по-VLC, с +12 дБ за «без изменений») — старое значение сбрасываем
-    // усиление — в шкале VLC, как в Murglar: число уходит в VLC как есть, «без изменений» = +12
+// усиление в шкале VLC: «без изменений» = +12; при смене шкалы старое значение сбрасываем
     val eqPreamp = MutableStateFlow(store.double("eq.preamp")?.toFloat() ?: VLC_UNITY_PREAMP)
 
     private val _sleepAt = MutableStateFlow<Long?>(null); val sleepAt = _sleepAt.asStateFlow()
@@ -109,8 +107,7 @@ object Player {
         combine(eqOn, eqPreset, eqAmps, eqPreamp) { on, p, a, pre -> EqState(on, p, a, pre) }.conflate().onEach { st ->
             store.put("eq.v2", true); store.put("eq.on", st.on); store.put("eq.preset", st.preset); store.put("eq.amps", st.amps.joinToString(",")); store.put("eq.preamp", st.preamp)
             applyEq(st)
-            // каждое применение перезапускает фильтры VLC; при выводе самим VLC новое слышно только после его буфера,
-            // и частые перезапуски теряются — там применяем реже, через Melos (буфер 100 мс) — почти сразу
+// применяем редко: каждый старт фильтров VLC при выводе самим VLC слышно с запаздыванием
             delay(if (engine?.tapping == true) 40 else 250)
         }.launchIn(scope)
         combine(_queue, _index) { q, i -> q to i }.debounce(800).onEach { (q, i) -> saveQueue(q, i) }.launchIn(scope)
@@ -177,9 +174,8 @@ object Player {
         return f.coerceIn(0.25f, 2f)
     }
 
-    // VLC переводит проценты в усиление по кубу ((v/100)³: 80 % = −5,8 дБ), поэтому поправку в разах
-    // вносим через кубический корень — иначе −6 дБ выравнивания превращались в −24 дБ.
-    // Эквалайзер на громкость не влияет никак — как в Murglar: усиление и полосы уходят в VLC как есть.
+// поправку вносим через кубический корень: VLC переводит проценты в усиление по кубу (80 % = −5,8 дБ)
+    // эквалайзер на громкость не влияет — усиление и полосы уходят в VLC как есть
     private fun effectiveVolume() = (volume.value * gainFactor(_current.value).toDouble().pow(1.0 / 3).toFloat()).roundToInt().coerceIn(0, 150)
     private fun applyVolume() { engine?.setVolume(effectiveVolume()) }
 
@@ -189,8 +185,7 @@ object Player {
 
         data class EqState(val on: Boolean, val preset: String, val amps: List<Float>, val preamp: Float)
 
-    // Эквалайзер как в Murglar: полосы и усиление передаются в VLC как есть (у VLC «без изменений» = усиление +12,
-    // вход фильтра внутри ослаблен в 4 раза) — в обоих режимах вывода.
+// у VLC «без изменений» = усиление +12 (вход фильтра ослаблен в 4 раза) — в обоих режимах вывода
     private fun applyEq(st: EqState, target: VlcEngine? = engine) {
         val e = target ?: return
         Log.i("Eq", "применяю: ${if (st.on) "вкл" else "выкл"}, усиление ${st.preamp}, полосы ${st.amps.joinToString(" ") { "%.0f".format(it) }}, " +
@@ -330,8 +325,7 @@ object Player {
     fun toggle() = when (_status.value) {
         Status.PLAYING -> engine?.pause()
         Status.PAUSED -> engine?.resume()
-        // грузится — не мешаем; но если загрузка уже умерла, а VLC так и не начал (застряли в OPENING/BUFFERING),
-        // «Плей» не должен молчать: перезапускаем трек с той же позиции
+// застряли в OPENING/BUFFERING с мёртвой загрузкой — «Плей» перезапускает трек с той же позиции
         Status.OPENING, Status.BUFFERING -> if (loadJob?.isActive != true && _index.value >= 0) playIndex(_index.value, startPosition()) else Unit
         // трек ещё не загружен — с позиции, куда перемотали (или где остановились до перезапуска)
         Status.IDLE, Status.ENDED, Status.ERROR -> if (_index.value >= 0) playIndex(_index.value, startPosition()) else Unit

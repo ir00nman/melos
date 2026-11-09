@@ -15,7 +15,6 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 
-// Обновление на Android (этап 1): проверяем релиз на GitHub и открываем его страницу —
 // самоподмену APK внутри Android сделать нельзя, ставит пользователь. Поверхность — как на десктопе.
 object Updater {
     private const val REPO = "ir00nman/melos"

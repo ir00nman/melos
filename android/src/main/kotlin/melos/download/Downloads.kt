@@ -7,7 +7,6 @@ import melos.core.Paths
 import melos.host.Toasts
 import java.io.File
 
-// Загрузки на Android (этап 2): WRITE_EXTERNAL_STORAGE/SAF/MediaStore — пока заглушка с тем же API,
 // чтобы общий UI (строки треков, экран «Загрузки») компилировался и честно говорил «скоро».
 object Downloads {
     sealed interface State {

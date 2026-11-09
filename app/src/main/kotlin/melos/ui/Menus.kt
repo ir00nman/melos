@@ -65,7 +65,6 @@ fun ColumnScope.ServiceMenu(s: Service) {
     }
     if (canLogin) Txt(if (login.isLogged) "Вход выполнен" else "Вход не выполнен", Modifier.padding(start = 10.dp, bottom = 8.dp),
         if (login.isLogged) p.ok else p.muted, T.small)
-    // поиск только по этому сервису; переключаться между сервисами — в общем поиске Melos
     if (searchable) SideItem("Поиск", (Nav.current as? Screen.Search)?.service == s.id) { Nav.go(Screen.Search(service = s.id)) }
     // меню как на сайте сервиса: группы с заголовками; разделы, которых нет в раскладке, — в конце
     val layout = SITE_MENUS[s.id] ?: listOf(null to roots.map { it.nodePath.last })

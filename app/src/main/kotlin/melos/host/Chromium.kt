@@ -38,15 +38,8 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
-// Окно входа на настоящем Chromium: Google, Apple, VK ID и нынешние сайты (SoundCloud) не пускают во встроенный WebKit.
-// Chromium — отдельный процесс со своим профилем в папке Melos (данные браузера пользователя не трогаем). Melos ведёт его
-// по протоколу DevTools, как Puppeteer: видит каждый переход до загрузки (решает плагин), забирает куки и закрывает окно.
-// В JVM Chromium не встраиваем: JCEF рассчитан на JetBrains Runtime и на обычном OpenJDK падал при запуске.
-// Google не пускает в аккаунт Chrome, запущенный с портом отладки («браузер небезопасен»), даже если к нему никто не подключён.
-// Тогда вход идёт в два шага: обычное окно Chrome без отладки (конец входа видно по истории профиля), затем — снова окно
-// под управлением: вход в профиле уже есть, сайт сразу отдаёт код или токен.
-// Chromium у Melos свой: один раз скачиваем официальную сборку Chromium (снимок на позиции текущего стабильного
-// релиза) в папку данных и от браузеров в системе не зависим; установленный Chrome (Edge, Brave) — только если скачать не вышло.
+// окно входа — настоящий Chromium со своим профилем: WebKit не пускают Google/VK ID, JCEF на OpenJDK падал.
+// Melos ведёт его по DevTools, как Puppeteer: видит переходы до загрузки, забирает куки, закрывает окно.
 object Chromium {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val json = Json { ignoreUnknownKeys = true }

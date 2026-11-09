@@ -31,9 +31,7 @@ import kotlin.math.min
 import kotlin.math.pow
 import kotlin.math.sin
 
-// Пульс музыки для всего интерфейса. Кадры и события анализатора приходят ровно тогда, когда их слышно.
-//   bass/level/treble/bands — сглаженный спектр; kick/hat — онсеты (момент и сила); drop — 0..1, насколько
-//   сейчас «дроп»; dropAt — момент взрыва; bpm — по интервалам бочек.
+// Пульс музыки для всего интерфейса: сглаженный спектр, онсеты (момент и сила), дроп, bpm.
 object Pulse {
     var bass by mutableFloatStateOf(0f); private set
     var level by mutableFloatStateOf(0f); private set
@@ -176,12 +174,9 @@ object Pulse {
             when (e) {
                 is Analyzer.Kick -> {
                     onKick(e.at); Analyzer.bpm.takeIf { it > 0 }?.let { bpm = it }
-                    // визуал без карты ведёт трекер долей Analyzer (сетка темпа): он не срабатывает
-                    // на произвольные волны баса, в отличие от порога по энергии
+// без карты удары ведёт трекер долей Analyzer — не срабатывает на произвольные волны баса
                     if (!mapActive) { kickAt = e.at; beatAt = e.at; kickPower = e.power }
-                    // самокалибровка карты: где по позиции оказался услышанный удар относительно ближайшей доли карты.
-                    // Принимаем только уверенные удары (сильные и близкие к доле): ложные онсеты синтов
-                    // между долями иначе тянут offset в стороны (±200 мс) — визуал «не в бит»
+// offset калибруется только по уверенным ударам — ложные онсеты тянут его на ±200 мс
                     if (map != null && map.beats.isNotEmpty() && e.power >= 0.45f) {
                         val posAt = Player.positionMs() - (now - e.at)
                         var lo = 0; var hi = map.beats.size - 1
@@ -227,8 +222,7 @@ object Pulse {
             level *= 1 - k(0.1f); treble *= 1 - k(0.1f); intensity *= 1 - k(0.1f)
         }
 
-        // [Peak Decay] «гравитация» вершин: новая вершина — запоминаем и держим PEAK_HOLD_MS,
-        // потом падаем с ускорением (скорость растёт на g·dt), но не ниже текущего уровня полосы
+// [Peak Decay] вершина держится PEAK_HOLD_MS и падает с ускорением, но не ниже полосы
         for (i in peaks.indices) {
             if (bands[i] >= peaks[i]) {
                 peaks[i] = bands[i]; peakHoldUntil[i] = now + PEAK_HOLD_MS; peakVelocity[i] = 0f
@@ -238,9 +232,7 @@ object Pulse {
             }
         }
 
-        // [Beat Detection] раньше здесь был второй детектор — энергия баса против среднего: он дёргался
-        // на любые волны баса (не только бочку) и не держал сетку. Теперь удары визуала ведёт трекер
-        // долей Analyzer (см. drain выше): он привязан к темпу и событию присвоен «слышимый» момент.
+// удары визуала ведёт трекер долей Analyzer — держит темп, в отличие от порога по энергии
         if (playing && f != null) maxLowEnergy = max(maxLowEnergy * 0.9995f, f.lowEnergy)
 
         var mapDrop = -1f
@@ -373,8 +365,7 @@ fun PulseDriver() = LaunchedEffect(Unit) {
     try { while (true) withFrameNanos { Pulse.tick(it) } } finally { Net.pulseDrivers-- }
 }
 
-// Фон окна: мягкие пятна цветов обложки медленно плывут, сверху — редкое точечное поле, как небо мозга.
-// На бит по полю проходит волна. Без металла и бликов — только свет и точки.
+// фон окна: пятна палитры медленно плывут, по точечному полю на бит идёт волна
 @Composable
 fun Backdrop(modifier: Modifier = Modifier) {
     val p = pal

@@ -77,7 +77,6 @@ fun PlayerBar(modifier: Modifier = Modifier) {
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(18.dp)) {
             // что играет
             Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                // от обложки расходятся волна палитры и всплеск лайка (раньше — от точки статуса в шапке)
                 Box(Modifier.onGloballyPositioned { Anchor.status = it.boundsInWindow().center }.lux({ track?.let { Nav.go(Screen.Track(it)) } ?: Nav.go(Screen.Home) }, R.md, bloom = false)) {
                     // обложка «дышит» на ударе: punch сам по себе — атака+спад, умножаем на силу кика
                     val punchNow = Pulse.punch()

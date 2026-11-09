@@ -70,8 +70,7 @@ object Images {
         IntArray(n * n) { bmp.getColor(it % n, it / n) }
     }
 
-    // «Подбор палитры под сайт» из Chrome crawler, только по обложке: до трёх насыщенных оттенков,
-    // разнесённых по кругу, от самого весомого к менее. Ч/б обложка — пустой список (остаёмся в моно).
+// подбор палитры из Chrome crawler: до трёх разнесённых оттенков обложки; ч/б — пустой список
     suspend fun paletteOf(url: String): List<Color> = withContext(Dispatchers.Default) {
         val px = grid(url, 32) ?: return@withContext emptyList()
         val buckets = FloatArray(24); val sumR = FloatArray(24); val sumG = FloatArray(24); val sumB = FloatArray(24)

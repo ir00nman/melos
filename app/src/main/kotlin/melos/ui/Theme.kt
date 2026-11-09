@@ -81,14 +81,12 @@ fun rememberPalette(): Palette {
         dark -> Look.accent.dark
         else -> Look.accent.light
     }
-    // акцент перетекает за 420 мс, а не переключается (@property --acc в оригинале)
     val acc by animateColorAsState(target, tween(if (Look.motion) 420 else 0, easing = EaseLux))
     val ink = if (acc.luminance() > 0.45f) Color(0xFF0A0A0A) else Color.White
     val covered = auto && Look.coverPalette.isNotEmpty()
     val pal3 = Look.coverPalette
     val c2 by animateColorAsState(pal3.getOrNull(1)?.let { if (dark) liftForDark(it) else dropForLight(it) } ?: target, tween(if (Look.motion) 900 else 0, easing = EaseLux))
     val c3 by animateColorAsState(pal3.getOrNull(2)?.let { if (dark) liftForDark(it) else dropForLight(it) } ?: target, tween(if (Look.motion) 900 else 0, easing = EaseLux))
-    // «Авто»: поверхности подкрашиваются акцентом; под обложкой — ещё и просвечивают, чтобы был виден фон из её цветов
     val tn = if (!auto) floatArrayOf(0f, 0f, 0f, 0f, 0f) else if (dark) floatArrayOf(.10f, .16f, .20f, .34f, .22f) else floatArrayOf(.04f, .07f, .09f, .16f, .09f)
     val glass = if (covered) 0.74f else 1f
     return if (dark) Palette(
@@ -108,7 +106,6 @@ fun rememberPalette(): Palette {
 
 fun Color.luminance(): Float = 0.2126f * red + 0.7152f * green + 0.0722f * blue
 
-// подобранный по обложке цвет должен читаться на чёрном / белом
 private fun liftForDark(c: Color): Color { var x = c; repeat(6) { if (x.luminance() < 0.42f) x = lerp(x, Color.White, 0.18f) }; return x }
 private fun dropForLight(c: Color): Color { var x = c; repeat(6) { if (x.luminance() > 0.45f) x = lerp(x, Color.Black, 0.18f) }; return x }
 
@@ -116,7 +113,6 @@ val LocalPalette = staticCompositionLocalOf<Palette> { error("нет палит�
 
 object T {
     val mono = Fonts.Inter                  // семейство одно на весь интерфейс
-    // шкала крупнее исходной панели: это окно плеера, а не узкая боковая панель браузера
     val body = TextStyle(fontSize = 14.sp, lineHeight = 20.sp, fontFamily = mono)
     val title = TextStyle(fontSize = 15.sp, fontWeight = FontWeight.SemiBold, fontFamily = mono)
     val display = TextStyle(fontSize = 38.sp, lineHeight = 42.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.8).sp, fontFamily = mono)
@@ -124,7 +120,6 @@ object T {
     val h2 = TextStyle(fontSize = 18.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.1).sp, fontFamily = mono)
     val cap = TextStyle(fontSize = 11.5.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp, fontFamily = mono)
     val small = TextStyle(fontSize = 12.5.sp, lineHeight = 17.sp, fontFamily = mono)
-    // таймкоды, длительности, проценты: шрифт интерфейса с табличными цифрами — без моноширинного
     val num = TextStyle(fontSize = 12.sp, fontFamily = mono, fontFeatureSettings = "tnum")
 }
 

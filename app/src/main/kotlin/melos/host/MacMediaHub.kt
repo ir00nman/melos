@@ -8,11 +8,8 @@ import com.sun.jna.NativeLibrary
 import com.sun.jna.Pointer
 import melos.core.Settings
 
-// macOS: аппаратные медиа-клавиши (Play/Pause, ⏭, ⏮) — слушаем NX_SYSDEFINED через CGEventTap
-// (listen-only, без перехвата) и разбираем через NSEvent(data1), как классические нативные плееры.
-// Системный Now Playing (MediaRemote.framework) на современных macOS закрыт для неподписанных
-// процессов — вызовы сегфолтят, поэтому этот путь не используется.
-// Если macOS просит разрешение: Системные настройки → Конфиденциальность → Мониторинг ввода → Melos/java.
+// медиа-клавиши macOS: NX_SYSDEFINED через CGEventTap (listen-only), разбор через NSEvent(data1).
+// Системный Now Playing (MediaRemote) закрыт для неподписанных процессов — вызовы сегфолтят, путь не используется.
 object MacMediaHub {
     private const val TAG = "MediaKeys"
     private const val NX_SYSDEFINED = 14

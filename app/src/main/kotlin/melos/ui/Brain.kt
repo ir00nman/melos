@@ -46,10 +46,7 @@ import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.math.sqrt
 
-// Вывод «звёздной сети» (render() и tick() из art-net.js). Музыка вместо состояний агента:
-//   играет — вращение и импульсы разгоняет громкость, число импульсов на связи — бас, искры — верха;
-//   бит — волна от ядра; вершина срабатывает синапсом на пике своей полосы, сгусток дышит ею;
-//   поток грузится — «думает» (искры к ядру, ядро дышит); пауза — притихает; ошибка — красный отлив и вздрог.
+// рендер «звёздной сети» (art-net.js): музыка вместо состояний агента
 @Composable
 fun Brain(modifier: Modifier = Modifier, interactive: Boolean = true, center: Offset = Offset(0.5f, 0.46f), scaleK: Float = 1f, light: Float = 1f) {
     if (Net.debugSpin) androidx.compose.runtime.DisposableEffect(Unit) {
@@ -67,7 +64,6 @@ fun Brain(modifier: Modifier = Modifier, interactive: Boolean = true, center: Of
             skip = !skip
         }
     }
-    // появление: мягкий рост и проявление (после анимации входа экрана не должно быть рывка)
     val appear = remember { Animatable(if (Look.motion) 0f else 1f) }
     LaunchedEffect(Unit) { if (appear.value < 1f) appear.animateTo(1f, tween(650, easing = EaseLux)) }
     Canvas(modifier
@@ -173,10 +169,7 @@ private fun DrawScope.render(p: Palette, center: Offset, scaleK: Float, light: F
     val stD = if (playing && motion) Pulse.stDrop else 0f
     val drop = if (playing && motion) max(Pulse.drop, stD) else 0f
     val treble = if (playing) Pulse.treble else 0f
-    //   бочка — физический «панч» всей сети и волна смещения точек от ядра;
-    //   малый/хэты — хроматический сдвиг (цветная тень точек) и короткий срез-глитч сетки;
-    //   бас — облако ядра разбухает; дроп — «большой взрыв»: сеть разлетается и пружинит обратно,
-    //   камера трясётся, наклон переворачивается, цвета вспыхивают в белый; пока дроп — всё жёстче.
+// бочка — панч сети, малый/хэт — хроматический сдвиг и глитч, бас разбухает ядро, дроп — взрыв и тряска
     val punch = if (playing && motion) Pulse.punch(now) * (1 + 0.8f * drop) else 0f
     val kickT = (now - Pulse.kickAt) / 1000f
     val kickFront = kickT / 0.32f * 1.4f
@@ -184,8 +177,7 @@ private fun DrawScope.render(p: Palette, center: Offset, scaleK: Float, light: F
     val tension = max(if (playing && motion) Pulse.tension else 0f, if (playing && motion) Pulse.stTension else 0f)
     val inhale = if (playing && motion) Pulse.stInhale else 0f
     val kickAmp = if (playing && motion && kickT in 0f..0.45f) Pulse.kickPower * (0.04f + 0.08f * energy + 0.15f * drop) * (1 - kickT / 0.45f) else 0f
-    // дроп: событие из структуры или карта — взрыв и толчок вращения (только через губернатор);
-    // кувырок наклона — однократный (см. flip ниже), без накопления переворотов
+// дроп — взрыв, толчок через губернатор и однократный кувырок наклона
     val dropHit = Pulse.stDropEvent || (Pulse.dropAt != n.lastDropAt && now - Pulse.dropAt < 400)
     if (playing && motion && dropHit) {
         n.lastDropAt = Pulse.dropAt; n.dropKickAt = now
@@ -315,8 +307,7 @@ private fun DrawScope.render(p: Palette, center: Offset, scaleK: Float, light: F
     val rewireK = (1 - (now - n.rewireAt) / 900f).coerceIn(0f, 1f)
     val poseTarget = if (!playing && !loading && n.grab == null && n.absorb == null && status != Status.ERROR && now - n.errorAt > 1500) 1f else 0f
     n.poseK += (poseTarget - n.poseK) * min(1f, dt * 1.4f)
-    // вращение — только через губернатор: цель пружиной (старт/стоп ~0.8 с, потолок 0.35 рад/с),
-    // толчки (клик/смена трека/дроп) — kick() и ограничены; «вдох» перед дропом на миг замирает
+// вращение — только через губернатор: потолок 0.35 рад/с, толчки через kick(), «вдох» замирает
     if (motion) {
         val omega = Net.spin.step(dt, playing, bass, calm, tension) * frozen * (1f - 0.8f * n.sleep) * (1f - n.poseK) * (1f - 0.9f * inhale)
         n.lastGovernorOmega = omega
@@ -348,7 +339,7 @@ private fun DrawScope.render(p: Palette, center: Offset, scaleK: Float, light: F
     val fronts = n.waves.map { (at, s) -> floatArrayOf(max(0f, (now - at).toFloat()) / Net.WAVE_MS * 1.35f, s * (1f - 0.5f * calm)) }
     val time = (now % 10_000_000L) / 1000f
     val assemble = if (!motion) 1f else min(1f, (now - n.startAt) / Net.ASSEMBLE_MS)
-    // вращение: при игре — свободный спин (+ позы частей песни), на паузе — бленд к позе логотипа кратчайшим доворотом
+// на паузе — бленд к позе логотипа кратчайшим доворотом
     val poseK = n.poseK
     val poseDelta = ((Net.POSE_YAW - n.angle + PI.toFloat()) % (2 * PI.toFloat()) + 2 * PI.toFloat()) % (2 * PI.toFloat()) - PI.toFloat()
     val yaw = n.angle + poseDelta * poseK + n.yaw * (1 - poseK)
@@ -608,8 +599,7 @@ private fun DrawScope.render(p: Palette, center: Offset, scaleK: Float, light: F
     val off = floor((cell - dot) / 2) + dot / 2; val offHot = floor((cell - dotHot) / 2) + dotHot / 2
     n.pendingSay?.let { text -> n.pendingSay = null; if (motion) n.say = layoutSay(text, w, h, cell, cx, cy, R) }
 
-    // свет (S) — лёгкий слой поверх сети: ядро ≤ 0.5R и до 6 мягких лучей.
-    // В NORMAL почти невидим (≤ 0.15), заметнее на BUILD и DROP; на подэкранах выключен (light = 0).
+// свет — лёгкий слой: в NORMAL почти невидим, заметнее на BUILD/DROP, на подэкранах выключен
     if (light > 0f && motion) {
         val eff = ((0.12f + 0.5f * tension + 0.45f * stD + 0.15f * bangFlash) * light).coerceAtMost(0.85f)
         if (eff > 0.02f) {

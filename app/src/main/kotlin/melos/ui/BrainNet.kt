@@ -265,7 +265,6 @@ object Net {
     /** Ограничитель вращения: скорость пружиной к цели, толчки ограничены, старт/стоп плавные (~0.8 с). */
     val spin = melos.player.SpinGovernor()
 
-    // ---- отладка разгона (MELOS_DEBUG_SPIN=1) ----
     val debugSpin = System.getenv("MELOS_DEBUG_SPIN") == "1"
     var brainInstances = 0                 // активных Canvas'ов мозга (должно быть 1)
     var pulseDrivers = 0                   // активных циклов Pulse.tick (должно быть 1)

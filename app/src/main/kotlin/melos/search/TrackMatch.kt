@@ -8,12 +8,8 @@ import melos.builtin.yandex.YandexMurglar
 import melos.host.Services
 import kotlin.math.abs
 
-// Общий поиск: один и тот же трек со всех площадок — в одну строку, играет версия в лучшем качестве.
-// Тот же трек — это те же исполнители, то же название и та же длительность (±4 с); «версии» (ремикс, кавер,
-// караоке, live, sped up…) — отдельные треки. Фальшивки (перезаливы с похожими названиями, каверы, «в стиле»)
-// уходят вниз: им не хватает слов из запроса, у них лишние пометки и их нет на других площадках.
-// Что считать оригиналом, решает эталон — открытые каталоги лейблов (Reference: Deezer, iTunes): у оригинала
-// те же исполнитель, название и длительность. Без эталона опора — каталог площадки и совпадение на нескольких площадках.
+// общий поиск: один трек со всех площадок — в одну строку, играет версия в лучшем качестве.
+// «тот же трек» = те же исполнители, название и длительность (±4 с); оригинал сверяется с каталогами лейблов (Reference)
 object TrackMatch {
 
     /** Версия трека на одной площадке и качество, которое она реально отдаст (с учётом подписки). */
@@ -183,10 +179,9 @@ object TrackMatch {
         // одна и та же площадка дважды в строке — оставляем лучшую версию
         val dedup = buckets.map { b -> b.groupBy { it.v!!.serviceId }.values.map { same -> same.maxBy { it.v!!.kbps } } }
 
-        // эталон: тот же трек — оригинал; то же название у того же исполнителя, но другая длина — подделка или обрезка
+// эталон: совпадение с каталогом — оригинал; то же название другой длины — подделка или обрезка
         fun original(b: List<Item>) = reference.any { r -> sameTrack(r, b.first()) }
-        // сам оригинал — самая популярная в каждом каталоге версия песни из запроса (без пометок, которых не просили);
-        // остальные совпадения с каталогом (feat.-версии, другие песни с тем же названием) — настоящие, но не «тот самый»
+
         val qSet = tokens(query).toSet()
         val wanted = refs.filter { r -> tags(r.title) == tags(query) && core(r.title, r.artists).split(' ').filter { it.isNotEmpty() }.all { it in qSet } }
         val named = wanted.filter { r -> artists(r.artists).any { a -> a.split(' ').all { it in qSet } } }
@@ -207,7 +202,7 @@ object TrackMatch {
         fun hit(token: String, pool: List<String>) = pool.any { it == token || (token.length >= 3 && it.startsWith(token)) || (it.length >= 3 && token.startsWith(it)) }
         // какая доля запроса — имя исполнителя: у трека другого исполнителя (кавер, колыбельная «в стиле») она меньше
         fun artistShare(artists: Set<String>) = if (q.isEmpty()) 0.0 else q.count { tok -> hit(tok, artists.flatMap { a -> a.split(' ') }) }.toDouble() / q.size
-        // планку задают эталон и подтверждённые версии: у загрузок SoundCloud исполнитель и название бывают переставлены
+// планку задаёт эталон: у загрузок SoundCloud исполнитель и название бывают переставлены
         val topArtistShare = (reference.map { it.artists } + dedup.filter(::confirmed).map { b -> b.flatMap { it.artists }.toSet() })
             .ifEmpty { dedup.map { b -> b.flatMap { it.artists }.toSet() } }.maxOfOrNull(::artistShare) ?: 0.0
         val anyConfirmed = dedup.any(::confirmed)

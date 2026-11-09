@@ -18,7 +18,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.util.Locale
 
-// Реестр сервисов на Android (этап 1): только встроенные мурглары — jar-плагины (URLClassLoader) на ART не живут,
 // их тут просто нет. API — 1:1 с десктопным, чтобы общий код ничего не заметил.
 sealed interface Origin {
     data object Builtin : Origin
