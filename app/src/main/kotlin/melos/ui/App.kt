@@ -110,7 +110,7 @@ private fun ChromiumDownload(modifier: Modifier) {
     Card(modifier.width(340.dp), color = p.card2, pad = 10.dp) {
         Row2(gap = 10.dp) {
             Txt("Скачиваю Chromium для входа", style = T.small, modifier = Modifier.weight(1f))
-            Txt("${(f * 100).toInt()} %", color = p.muted, style = T.monoSmall)
+            Txt("${(f * 100).toInt()} %", color = p.muted, style = T.num)
         }
         Box(Modifier.padding(top = 6.dp).fillMaxWidth().height(6.dp).clip(R.pill).background(p.txt.copy(alpha = .12f))) {
             Box(Modifier.fillMaxWidth(f.coerceIn(0.02f, 1f)).height(6.dp).clip(R.pill).background(p.acc))
@@ -140,7 +140,7 @@ private fun UpdateOffer(modifier: Modifier) {
             Card(modifier.width(380.dp), color = p.card2, pad = 10.dp) {
                 Row2(gap = 10.dp) {
                     Txt("Скачиваю обновление", style = T.small, modifier = Modifier.weight(1f))
-                    Txt("${(frac * 100).toInt()} %", color = p.muted, style = T.monoSmall)
+                    Txt("${(frac * 100).toInt()} %", color = p.muted, style = T.num)
                 }
                 Box(Modifier.padding(top = 6.dp).fillMaxWidth().height(6.dp).clip(R.pill).background(p.txt.copy(alpha = .12f))) {
                     Box(Modifier.fillMaxWidth(frac.coerceIn(0.02f, 1f)).height(6.dp).clip(R.pill).background(p.acc))

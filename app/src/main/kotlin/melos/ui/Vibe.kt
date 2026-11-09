@@ -19,6 +19,7 @@ import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import melos.player.Analyzer
+import melos.player.BeatStructure
 import melos.player.Player
 import melos.player.Status
 import kotlin.math.PI
@@ -65,6 +66,31 @@ object Pulse {
     var brightness by mutableFloatStateOf(0.5f); private set
     /** 0..1 — последние 8 секунд трека: мозг затихает к концу. */
     var outro by mutableFloatStateOf(0f); private set
+
+    // ---- структура трека (провал → нарастание → дроп): BeatStructure на живом звуке,
+    //      в режиме карты — предпрогон по спектру карты, чтение по позиции воспроизведения ----
+    val structure = BeatStructure()
+    var stPhase = BeatStructure.Phase.NORMAL; private set
+    /** 0..1 — провал энергии (BREAKDOWN). */
+    var stCalm by mutableFloatStateOf(0f); private set
+    /** 0..1 — нарастание перед дропом (BUILD). */
+    var stTension by mutableFloatStateOf(0f); private set
+    /** 0..1 — импульс дропа, затухает (~0.6 с). */
+    var stDrop by mutableFloatStateOf(0f); private set
+    /** 0..1 — «вдох» за 0.15–0.4 с до известного заранее дропа. */
+    var stInhale by mutableFloatStateOf(0f); private set
+    /** Сила дропа 0..1 (в кадр события). */
+    var stDropStrength = 0f; private set
+    /** true ровно в кадр найденного дропа. */
+    var stDropEvent = false; private set
+
+    /** Предпрогон структуры по карте: сэмплы каждые 50 мс, значения читаются по позиции. */
+    private class StTimeline(val stepMs: Float, val n: Int, val calm: FloatArray, val tension: FloatArray,
+                             val drop: FloatArray, val phase: IntArray, val dropIdx: IntArray)
+    private var stMap: StTimeline? = null
+    private var stMapFor: String? = null
+    private var stLastIdx = -1
+    private var stLoggedPhase = BeatStructure.Phase.NORMAL
 
     /** Анимации идут по заранее разобранной карте трека. */
     var mapActive = false; private set
@@ -142,7 +168,11 @@ object Pulse {
         val now = System.currentTimeMillis()
         val playing = Player.status.value == Status.PLAYING
         val track = Player.current.value?.mediaId
-        if (track != lastTrack) { lastTrack = track; kicks.clear(); bpm = 0f; drop = 0f; maxLowEnergy = 0f; mapPos = -1L; calib.clear(); mapOffset = baseOffset(); section = -1; antic = 0f }
+        if (track != lastTrack) {
+            lastTrack = track; kicks.clear(); bpm = 0f; drop = 0f; maxLowEnergy = 0f; mapPos = -1L; calib.clear(); mapOffset = baseOffset(); section = -1; antic = 0f
+            structure.reset(); stMap = null; stMapFor = null; stLastIdx = -1
+            stPhase = BeatStructure.Phase.NORMAL; stCalm = 0f; stTension = 0f; stDrop = 0f; stInhale = 0f; stDropEvent = false
+        }
         if (calib.isEmpty()) mapOffset = baseOffset()
         val map = melos.player.TrackAnalysis.mapFor(track)
         mapActive = map != null && playing
@@ -283,6 +313,63 @@ object Pulse {
         val hold = if (now - dropAt < 4000) 1f - (now - dropAt) / 4000f * 0.3f else 0f
         val target = if (playing) max(hold, if (mapDrop >= 0f) mapDrop else intensity * 0.8f) else 0f
         drop += (target - drop) * k(if (target > drop) 0.3f else 0.015f)       // [Lerp]
+
+        // ---- структура трека: живой звук — трекер в реальном времени; карта — предпрогон, чтение по позиции ----
+        stDropEvent = false
+        if (playing && f != null) {
+            structure.update(dt, level, bass, treble)
+            stPhase = structure.phase; stCalm = structure.calm; stTension = structure.tension
+            stDrop = structure.drop; stInhale = structure.inhale
+            if (structure.dropEvent) { stDropEvent = true; stDropStrength = structure.dropStrength }
+        } else if (fromMap && map != null) {
+            val len = Player.length.value
+            if (stMapFor != track && len > 0) { stMapFor = track; stMap = buildStTimeline(map, len); stLastIdx = -1 }
+            val tl = stMap
+            if (tl != null) {
+                val pos = Player.positionMs() - mapOffset                  // тот же сдвиг синхронизации, что у карты
+                val idx = (pos / tl.stepMs).toInt().coerceIn(0, tl.n - 1)
+                stPhase = BeatStructure.Phase.entries[tl.phase[idx]]
+                stCalm = tl.calm[idx]; stTension = tl.tension[idx]; stDrop = tl.drop[idx]
+                var aheadDrop = -1
+                for (di in tl.dropIdx) {
+                    if (di > idx) { aheadDrop = di; break }                // ближайший дроп впереди
+                    if (di > stLastIdx) { stDropEvent = true; stDropStrength = 1f; stInhale = 0f }
+                }
+                stInhale = if (aheadDrop >= 0) {                            // «вдох» за 0.35 с до дропа
+                    val ahead = aheadDrop * tl.stepMs - pos
+                    if (ahead in 0f..350f) 1f - ahead / 350f else stInhale * (1 - k(0.3f))
+                } else stInhale * (1 - k(0.3f))
+                stLastIdx = idx
+            }
+        } else {
+            stCalm *= 1 - k(0.1f); stTension *= 1 - k(0.1f); stDrop *= 1 - k(0.05f); stInhale *= 1 - k(0.2f)
+        }
+        if (debugBeats && (stPhase != stLoggedPhase || stDropEvent)) {
+            stLoggedPhase = stPhase
+            melos.host.Log.i("Beats", "структура: фаза=$stPhase calm=${"%.2f".format(stCalm)} tension=${"%.2f".format(stTension)}" +
+                (if (stDropEvent) " dropEvent сила=${"%.2f".format(stDropStrength)}" else ""))
+        }
+    }
+
+    /** Предпрогон трекера структуры по спектру карты: сэмпл каждые 50 мс, значения читаем потом по позиции. */
+    private fun buildStTimeline(map: melos.player.TrackMap, len: Long): StTimeline? {
+        val stepMs = 50f
+        val n = (len / stepMs).toInt()
+        if (n < 8) return null
+        val bs = BeatStructure()
+        val scratch = FloatArray(bands.size)
+        val calm = FloatArray(n); val tension = FloatArray(n); val dropV = FloatArray(n); val phase = IntArray(n)
+        val drops = mutableListOf<Int>()
+        for (i in 0 until n) {
+            val pos = (i * stepMs).toLong()
+            map.spectrumAt(pos, scratch)
+            var b = 0f; for (j in 0..3) b += scratch[j]
+            var h = 0f; for (j in scratch.size - 8 until scratch.size) h += scratch[j]
+            bs.update(stepMs / 1000f, map.levelAt(pos), b / 4f, h / 8f)
+            calm[i] = bs.calm; tension[i] = bs.tension; dropV[i] = bs.drop; phase[i] = bs.phase.ordinal
+            if (bs.dropEvent) drops += i
+        }
+        return StTimeline(stepMs, n, calm, tension, dropV, phase, drops.toIntArray())
     }
 }
 
@@ -301,32 +388,37 @@ fun Backdrop(modifier: Modifier = Modifier) {
         if (p.covered) {
             val w = size.width; val h = size.height; val r = max(w, h) * 0.62f
             val k = if (p.dark) 1f else 0.55f
+            val calmK = 1f - 0.6f * Pulse.stCalm                  // BREAKDOWN: пятна палитры гаснут
             val blobs = listOf(
                 Triple(p.acc, Offset(w * (0.22f + 0.08f * sin(t * 0.13f)), h * (0.30f + 0.10f * cos(t * 0.11f))), 0.30f),
                 Triple(p.c2, Offset(w * (0.80f + 0.07f * cos(t * 0.09f)), h * (0.25f + 0.08f * sin(t * 0.15f))), 0.24f),
                 Triple(p.c3, Offset(w * (0.55f + 0.10f * sin(t * 0.07f)), h * (0.92f + 0.06f * cos(t * 0.12f))), 0.22f),
             )
             blobs.forEach { (c, o, a) ->
-                val alpha = (a + Pulse.bass * 0.08f) * k
+                val alpha = (a + Pulse.bass * 0.08f) * k * calmK
                 drawCircle(Brush.radialGradient(listOf(c.copy(alpha = alpha), c.copy(alpha = alpha * 0.35f), Color.Transparent), o, r), r, o)
             }
         }
-        // точечное поле: два пакетных вызова вместо тысяч отдельных прямоугольников; на бит проходит волна
+        // точечное поле: два пакетных вызова вместо тысяч отдельных прямоугольников; на бит проходит волна;
+        // яркость — ступенями (5 уровней), в провале поле гаснет
         if (Look.brain) {
             val step = 22.dp.toPx(); val dot = 1.6.dp.toPx()
             val beat = Pulse.beat()
-            val center = Offset(size.width * 0.5f, size.height * 0.42f)
-            val front = (1 - beat) * max(size.width, size.height) * 0.9f
-            val band = 40.dp.toPx()
-            val cols = (size.width / step).toInt() + 1; val rows = (size.height / step).toInt() + 1
-            val base = ArrayList<Offset>(cols * rows); val lit = ArrayList<Offset>()
-            for (r in 0 until rows) for (c in 0 until cols) {
-                val o = Offset(step / 2 + c * step, step / 2 + r * step)
-                if (beat > 0f && kotlin.math.abs(hypot(o.x - center.x, o.y - center.y) - front) < band) lit += o else base += o
+            val calmK = 1f - 0.85f * Pulse.stCalm
+            if (calmK > 0.03f) {
+                val center = Offset(size.width * 0.5f, size.height * 0.42f)
+                val front = (1 - beat) * max(size.width, size.height) * 0.9f
+                val band = 40.dp.toPx()
+                val cols = (size.width / step).toInt() + 1; val rows = (size.height / step).toInt() + 1
+                val base = ArrayList<Offset>(cols * rows); val lit = ArrayList<Offset>()
+                for (r in 0 until rows) for (c in 0 until cols) {
+                    val o = Offset(step / 2 + c * step, step / 2 + r * step)
+                    if (beat > 0f && kotlin.math.abs(hypot(o.x - center.x, o.y - center.y) - front) < band) lit += o else base += o
+                }
+                val k = (if (p.dark) 1f else 0.7f) * calmK
+                drawPoints(base, androidx.compose.ui.graphics.PointMode.Points, lerpC(p.txt, p.acc, 0.35f).copy(alpha = PixelFx.quant(0.05f * k)), dot, androidx.compose.ui.graphics.StrokeCap.Square)
+                if (lit.isNotEmpty()) drawPoints(lit, androidx.compose.ui.graphics.PointMode.Points, p.acc.copy(alpha = PixelFx.quant((0.05f + 0.22f * beat) * k)), dot * 1.3f, androidx.compose.ui.graphics.StrokeCap.Square)
             }
-            val k = if (p.dark) 1f else 0.7f
-            drawPoints(base, androidx.compose.ui.graphics.PointMode.Points, lerpC(p.txt, p.acc, 0.35f).copy(alpha = 0.05f * k), dot, androidx.compose.ui.graphics.StrokeCap.Square)
-            if (lit.isNotEmpty()) drawPoints(lit, androidx.compose.ui.graphics.PointMode.Points, p.acc.copy(alpha = (0.05f + 0.22f * beat) * k), dot * 1.3f, androidx.compose.ui.graphics.StrokeCap.Square)
         }
     }
 }

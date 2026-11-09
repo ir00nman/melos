@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -88,7 +89,7 @@ fun TrackRow(
         }
     }) {
         Row(
-            modifier.fillMaxWidth().clip(R.md)
+            modifier.fillMaxWidth().heightIn(min = if (dense) 52.dp else 56.dp).clip(R.md)
                 .background(when { isCurrent -> p.acc.copy(alpha = .10f); hovered -> p.txt.copy(alpha = .05f); else -> Color.Transparent })
                 .hoverable(src).clickable { playOnce(); BrainBus.absorb() }.pointerHoverIcon(PointerIcon.Hand)
                 .padding(horizontal = 8.dp, vertical = if (dense) 4.dp else 6.dp),
@@ -101,7 +102,7 @@ fun TrackRow(
                     Bars(status == Status.PLAYING, Color.White)
                 }
             } else Box(Modifier.width(24.dp), contentAlignment = Alignment.Center) {
-                if (isCurrent) Bars(status == Status.PLAYING, p.acc) else Txt("${index + 1}", color = p.muted, style = T.monoSmall)
+                if (isCurrent) Bars(status == Status.PLAYING, p.acc) else Txt("${index + 1}", color = p.muted, style = T.num)
             }
             Column(Modifier.weight(1f)) {
                 Txt(track.fullTitle, color = if (isCurrent) p.acc else p.txt, style = T.body.copy(fontWeight = FontWeight.Medium))
@@ -117,11 +118,11 @@ fun TrackRow(
             }
             trailing?.invoke()
             when (val d = downloads[track.mediaId]) {
-                is Downloads.State.Running -> Txt("${(d.progress * 100).toInt()}%", color = p.acc, style = T.monoSmall)
+                is Downloads.State.Running -> Txt("${(d.progress * 100).toInt()}%", color = p.acc, style = T.num)
                 is Downloads.State.Done -> Icon(Ic.check, p.ok, size = 13.dp)
                 else -> {}
             }
-            Txt(if (track.durationMs > 0) fmt(track.durationMs) else "LIVE", color = if (track.durationMs > 0) p.muted else p.critical, style = T.monoSmall)
+            Txt(if (track.durationMs > 0) fmt(track.durationMs) else "LIVE", color = if (track.durationMs > 0) p.muted else p.critical, style = T.num)
         }
     }
 }

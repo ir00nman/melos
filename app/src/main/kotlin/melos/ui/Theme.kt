@@ -28,9 +28,9 @@ val EaseVelvet = CubicBezierEasing(0.34f, 1.4f, 0.64f, 1f) // бархат — �
 val EaseHeavy = CubicBezierEasing(0.7f, 0f, 0.3f, 1f)      // тяжёлая инерция
 
 object R {
-    val lg = RoundedCornerShape(20.dp)
-    val md = RoundedCornerShape(14.dp)
-    val sm = RoundedCornerShape(10.dp)
+    val lg = RoundedCornerShape(20.dp)      // панели, крупные обложки
+    val md = RoundedCornerShape(12.dp)      // строки, средние обложки
+    val sm = RoundedCornerShape(8.dp)       // чипы, подсказки
     val pill = RoundedCornerShape(999.dp)
 }
 
@@ -60,7 +60,7 @@ enum class ThemeMode(val label: String) { SYSTEM("Системная"), DARK("Т
 object Look {
     private val s = Settings.store
     var theme by mutableStateOf(s.string("theme")?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() } ?: ThemeMode.DARK)
-    var accent by mutableStateOf(s.string("accent")?.let { runCatching { Accent.valueOf(it) }.getOrNull() } ?: Accent.AUTO)
+    var accent by mutableStateOf(s.string("accent")?.let { runCatching { Accent.valueOf(it) }.getOrNull() } ?: Accent.MONO)
     var motion by mutableStateOf(s.bool("motion") ?: true)
     var brain by mutableStateOf(s.bool("brain") ?: true)
     var coverColor by mutableStateOf<Color?>(null)   // подобран по обложке текущего трека
@@ -116,16 +116,17 @@ private fun dropForLight(c: Color): Color { var x = c; repeat(6) { if (x.luminan
 val LocalPalette = staticCompositionLocalOf<Palette> { error("нет палитры") }
 
 object T {
-    val mono = FontFamily.Monospace
+    val mono = Fonts.Inter                  // семейство одно на весь интерфейс
     // шкала крупнее исходной панели: это окно плеера, а не узкая боковая панель браузера
-    val body = TextStyle(fontSize = 14.sp, lineHeight = 20.sp)
-    val title = TextStyle(fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-    val display = TextStyle(fontSize = 38.sp, lineHeight = 42.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.8).sp)
-    val h1 = TextStyle(fontSize = 28.sp, lineHeight = 32.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.5).sp)
-    val h2 = TextStyle(fontSize = 18.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.1).sp)
-    val cap = TextStyle(fontSize = 11.5.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
-    val small = TextStyle(fontSize = 12.5.sp, lineHeight = 17.sp)
-    val monoSmall = TextStyle(fontSize = 12.sp, fontFamily = FontFamily.Monospace)
+    val body = TextStyle(fontSize = 14.sp, lineHeight = 20.sp, fontFamily = mono)
+    val title = TextStyle(fontSize = 15.sp, fontWeight = FontWeight.SemiBold, fontFamily = mono)
+    val display = TextStyle(fontSize = 38.sp, lineHeight = 42.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.8).sp, fontFamily = mono)
+    val h1 = TextStyle(fontSize = 28.sp, lineHeight = 32.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.5).sp, fontFamily = mono)
+    val h2 = TextStyle(fontSize = 18.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.1).sp, fontFamily = mono)
+    val cap = TextStyle(fontSize = 11.5.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp, fontFamily = mono)
+    val small = TextStyle(fontSize = 12.5.sp, lineHeight = 17.sp, fontFamily = mono)
+    // таймкоды, длительности, проценты: шрифт интерфейса с табличными цифрами — без моноширинного
+    val num = TextStyle(fontSize = 12.sp, fontFamily = mono, fontFeatureSettings = "tnum")
 }
 
 @Composable

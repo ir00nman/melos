@@ -51,10 +51,18 @@ import kotlin.math.sqrt
 //   бит — волна от ядра; вершина срабатывает синапсом на пике своей полосы, сгусток дышит ею;
 //   поток грузится — «думает» (искры к ядру, ядро дышит); пауза — притихает; ошибка — красный отлив и вздрог.
 @Composable
-fun Brain(modifier: Modifier = Modifier, interactive: Boolean = true, center: Offset = Offset(0.5f, 0.46f), scaleK: Float = 1f) {
+fun Brain(modifier: Modifier = Modifier, interactive: Boolean = true, center: Offset = Offset(0.5f, 0.46f), scaleK: Float = 1f, light: Float = 1f) {
     var frame by remember { mutableLongStateOf(0L) }
     val p = pal
-    LaunchedEffect(Unit) { while (true) withFrameNanos { frame = it } }
+    // на паузе и во сне рендер вполсилы — кадры даром не жжём
+    LaunchedEffect(Unit) {
+        var skip = false
+        while (true) withFrameNanos {
+            val idle = Player.status.value != Status.PLAYING && Net.sleep > 0.5f
+            if (!(idle && skip)) frame = it
+            skip = !skip
+        }
+    }
     // появление: мягкий рост и проявление (после анимации входа экрана не должно быть рывка)
     val appear = remember { Animatable(if (Look.motion) 0f else 1f) }
     LaunchedEffect(Unit) { if (appear.value < 1f) appear.animateTo(1f, tween(650, easing = EaseLux)) }
@@ -79,14 +87,14 @@ fun Brain(modifier: Modifier = Modifier, interactive: Boolean = true, center: Of
             awaitPointerEventScope { while (true) { val e = awaitPointerEvent(); if (e.type == PointerEventType.Move) Net.wake() } }
         })) {
         frame.let { }
-        render(p, center, scaleK)
+        render(p, center, scaleK, light)
     }
 }
 
 // Кружки группируются по (размер, доля белого, прозрачность) — один drawPoints на группу.
 private class Bucket { var a = FloatArray(256); var n = 0; fun add(x: Float, y: Float) { if (n + 2 > a.size) a = a.copyOf(a.size * 2); a[n++] = x; a[n++] = y } }
 private const val MIXQ = 12
-private const val ALQ = 12
+private const val ALQ = 5          // яркость ступенями: 5 уровней — «аппаратный» пиксельный вид
 private val buckets = Array(2 * MIXQ * ALQ) { Bucket() }
 private val halos = ArrayList<FloatArray>()
 private var gridV = FloatArray(0)
@@ -105,7 +113,7 @@ private val cellHash = { x: Float, y: Float -> val v = sin(x * 127.1 + y * 311.7
 private fun smooth(t: Float): Float { val v = t.coerceIn(0f, 1f); return v * v * (3 - 2 * v) }
 private fun ease(t: Float): Float = 1 - (1 - t.coerceIn(0f, 1f)).pow(3)
 
-private fun DrawScope.render(p: Palette, center: Offset, scaleK: Float) {
+private fun DrawScope.render(p: Palette, center: Offset, scaleK: Float, light: Float) {
     val n = Net
     val now = System.currentTimeMillis()
     val dt = if (n.last == 0L) 0.016f else ((now - n.last) / 1000f).coerceIn(0f, 0.1f)
@@ -142,7 +150,10 @@ private fun DrawScope.render(p: Palette, center: Offset, scaleK: Float) {
         n.lastStatus = status
     }
     val trackId = Player.current.value?.mediaId
-    if (trackId != n.lastTrack) { if (n.lastTrack != null && motion) { n.rewireAt = now; n.rewireFront = 0f }; n.lastTrack = trackId; n.lastTimeAt = 0L }
+    if (trackId != n.lastTrack) {
+        if (n.lastTrack != null && motion) { n.rewireAt = now; n.rewireFront = 0f; n.spin.kick(0.10f) }
+        n.lastTrack = trackId; n.lastTimeAt = 0L
+    }
     val tNow = Player.time.value
     if (playing && n.wasPlaying && n.lastTimeAt > 0) {                 // перемотка: время прыгнуло — мозг прокручивается в ту же сторону
         val jump = tNow - (n.lastTime + (now - n.lastTimeAt))
@@ -153,7 +164,9 @@ private fun DrawScope.render(p: Palette, center: Offset, scaleK: Float) {
     val bands = Pulse.bands
     val bass = if (playing) Pulse.bass else 0f
     val level = if (playing) Pulse.level else 0f
-    val drop = if (playing && motion) Pulse.drop else 0f
+    // фазы структуры трека (BeatStructure): дроп — наибольший из карты и трекера
+    val stD = if (playing && motion) Pulse.stDrop else 0f
+    val drop = if (playing && motion) max(Pulse.drop, stD) else 0f
     val treble = if (playing) Pulse.treble else 0f
     // ---- новые реакции на музыку (своё, не из расширения) ----
     //   бочка — физический «панч» всей сети и волна смещения точек от ядра;
@@ -164,12 +177,20 @@ private fun DrawScope.render(p: Palette, center: Offset, scaleK: Float) {
     val kickT = (now - Pulse.kickAt) / 1000f
     val kickFront = kickT / 0.32f * 1.4f
     val energy = if (playing) Pulse.energy.coerceIn(0f, 1f) else 0f
-    val tension = if (playing && motion) Pulse.tension else 0f
+    val tension = max(if (playing && motion) Pulse.tension else 0f, if (playing && motion) Pulse.stTension else 0f)
+    val inhale = if (playing && motion) Pulse.stInhale else 0f
     val kickAmp = if (playing && motion && kickT in 0f..0.45f) Pulse.kickPower * (0.04f + 0.08f * energy + 0.15f * drop) * (1 - kickT / 0.45f) else 0f
-    if (playing && motion && Pulse.dropAt != n.lastDropAt && now - Pulse.dropAt < 400) { n.lastDropAt = Pulse.dropAt; n.dropKickAt = Pulse.dropAt; n.flipFrom = n.flipTo; n.flipTo += PI.toFloat() }
+    // дроп: событие из структуры или карта — взрыв, вспышка, ударная волна и толчок вращения (только через губернатор)
+    val dropHit = Pulse.stDropEvent || (Pulse.dropAt != n.lastDropAt && now - Pulse.dropAt < 400)
+    if (playing && motion && dropHit) {
+        n.lastDropAt = Pulse.dropAt; n.dropKickAt = now; n.shockAt = now
+        n.flipFrom = n.flipTo; n.flipTo += PI.toFloat()
+        n.spin.kick(0.18f); n.wave(1.3f)
+    }
     // ---- форма песни: смена части — новая поза и волна; фраза (8 тактов) — лёгкий доворот; сильная доля — шажок ----
     val secE = if (playing) Pulse.sectionEnergy else 0.6f
-    val calm = ((0.5f - secE) / 0.3f).coerceIn(0f, 1f)                      // 1 — тихая часть (вступление, проигрыш)
+    // BREAKDOWN: провал и по карте (тихая часть), и по трекеру структуры — берём сильнейший
+    val calm = max(((0.5f - secE) / 0.3f).coerceIn(0f, 1f), if (playing) Pulse.stCalm else 0f)
     val antic = if (playing && motion) Pulse.antic else 0f
     val outro = if (playing && motion) Pulse.outro else 0f
     if (playing && motion && Pulse.sectionAt != n.lastSectionAt && now - Pulse.sectionAt < 600) {
@@ -282,11 +303,21 @@ private fun DrawScope.render(p: Palette, center: Offset, scaleK: Float) {
     val frozen = if (sq != null && sq[3] > 0 && sqAge < sq[3]) 0f else 1f
     val scrubK = (1 - (now - n.scrubAt) / 700f).coerceIn(0f, 1f)
     val rewireK = (1 - (now - n.rewireAt) / 900f).coerceIn(0f, 1f)
-    if (motion) n.angle += Net.SPIN * dt * (live * mSpin * (1 - 0.8f * n.sleep) * frozen + kick + poke + n.scrubDir * 16f * scrubK * scrubK + 4f * rewireK * rewireK + 12f * exp(-(now - n.dropKickAt) / 450f) * (if (n.dropKickAt > 0) 1f else 0f))
+    // ---- поза логотипа: на паузе и в простое сеть доворачивается к силуэту лого и замирает, при игре снова крутится ----
+    val poseTarget = if (!playing && !loading && n.grab == null && n.absorb == null && status != Status.ERROR && now - n.errorAt > 1500) 1f else 0f
+    n.poseK += (poseTarget - n.poseK) * min(1f, dt * 1.4f)
+    // вращение — только через губернатор: цель пружиной (старт/стоп ~0.8 с, потолок 0.35 рад/с),
+    // толчки (клик/смена трека/дроп) — kick() и ограничены; «вдох» перед дропом на миг замирает
+    if (motion) {
+        val omega = Net.spin.step(dt, playing, bass, calm, tension) * frozen * (1f - 0.8f * n.sleep) * (1f - n.poseK) * (1f - 0.9f * inhale)
+        n.angle += omega * dt + n.scrubDir * 16f * scrubK * scrubK * dt      // прокрутка при перемотке — руками пользователя
+    }
 
     // ---- геометрия кадра ----
     val w = size.width; val h = size.height
-    val cell = max(2f, (Net.CELL * density).roundToInt().toFloat())
+    // пиксельная сетка: на BUILD крупнеет («собирается»), на «вдохе» ещё крупнее, на дропе щёлкает в мелкую
+    val cell = PixelFx.cell(max(2f, (Net.CELL * density).roundToInt().toFloat()),
+        if (playing) Pulse.stTension else 0f, stD, inhale)
     n.cellPx = cell
     val zt = (aliveT / Net.ALIVE_S).coerceIn(0f, 1f)
     val zoom = if (!motion) 1f else 1 + Net.ZOOM_IN * (1 - zt).pow(3)
@@ -302,14 +333,23 @@ private fun DrawScope.render(p: Palette, center: Offset, scaleK: Float) {
     val shake = bangFlash * 12f * density
     val cx = baseCx + n.leanX + sin(now * 0.07f) * shake; val cy = baseCy + n.leanY + cos(now * 0.09f) * shake
     n.lastCx = cx; n.lastCy = cy
-    val R = min(w, h * 0.92f) * 0.36f * scaleK * zoom * (1 - shrinkK) * (1 + punch * (0.04f + 0.08f * energy) + drop * 0.08f + bang - tension * 0.12f
-        - antic * 0.06f - outro * 0.1f)
+    // масштаб: пульс бита ≤ 3%, дроп — пружина 1.0→1.12→1.0, BREAKDOWN сжимает к ядру до 88%, «вдох» втягивает на 8%
+    val R = min(w, h * 0.92f) * 0.36f * scaleK * zoom * (1 - shrinkK) * (1 + punch * 0.03f + drop * 0.08f + max(0f, bang) * 0.12f - tension * 0.12f
+        - antic * 0.06f - outro * 0.1f - 0.12f * calm - 0.08f * inhale)
     while (n.waves.isNotEmpty() && now - n.waves.first().first > Net.WAVE_MS) n.waves.removeFirst()
     val fronts = n.waves.map { (at, s) -> floatArrayOf(max(0f, (now - at).toFloat()) / Net.WAVE_MS * 1.35f, s) }
     val time = (now % 10_000_000L) / 1000f
     val assemble = if (!motion) 1f else min(1f, (now - n.startAt) / Net.ASSEMBLE_MS)
-    val ca = cos(n.angle + n.yaw); val sa = sin(n.angle + n.yaw)
-    val tilt = 0.32f + sin(time * 0.21f) * 0.08f * live + flip + n.tiltOff; val ct = cos(tilt); val stt = sin(tilt)
+    // вращение: при игре — свободный спин (+ позы частей песни), на паузе — бленд к позе логотипа кратчайшим доворотом
+    val poseK = n.poseK
+    val poseDelta = ((Net.POSE_YAW - n.angle + PI.toFloat()) % (2 * PI.toFloat()) + 2 * PI.toFloat()) % (2 * PI.toFloat()) - PI.toFloat()
+    val yaw = n.angle + poseDelta * poseK + n.yaw * (1 - poseK)
+    val tiltFree = 0.32f + sin(time * 0.21f) * 0.08f * live + flip + n.tiltOff
+    val tilt = tiltFree * (1 - poseK) + Net.POSE_TILT * poseK
+    val roll = Net.POSE_ROLL * poseK
+    val ca = cos(yaw); val sa = sin(yaw)
+    val ct = cos(tilt); val stt = sin(tilt)
+    val cr = cos(roll); val sr = sin(roll)
 
     val GW = ceil(w / cell).toInt() + 2; val GH = ceil(h / cell).toInt() + 2; val gsize = GW * GH
     if (gridV.size < gsize) { gridV = FloatArray(gsize); gridD = FloatArray(gsize); gridUsed = IntArray(gsize); gridN = 0 }
@@ -332,8 +372,9 @@ private fun DrawScope.render(p: Palette, center: Offset, scaleK: Float) {
         }
         val x1 = x * ca - z * sa; val z1 = x * sa + z * ca
         val y2 = y * ct - z1 * stt; val z2 = y * stt + z1 * ct
+        val xr = x1 * cr - y2 * sr; val yr = x1 * sr + y2 * cr        // крен — только в позе логотипа
         val k = 2.6f / (2.6f + z2)
-        qx = cx + x1 * R * k; qy = cy + y2 * R * k; qd = z2; qk = k
+        qx = cx + xr * R * k; qy = cy + yr * R * k; qd = z2; qk = k
     }
     fun nearest(bx: Float, by: Float, take: Int): List<Int> =
         n.nodes.indices.sortedBy { i -> project(n.nodes[i].x, n.nodes[i].y, n.nodes[i].z); hypot(qx - bx, qy - by) }.take(take)
@@ -349,11 +390,17 @@ private fun DrawScope.render(p: Palette, center: Offset, scaleK: Float) {
             val jit = 0.012f * live * (1 + bass * 1.5f + drop * 2f)          // облако ядра колышется басом
             val swell = 1 + bass * 0.22f + punch * 0.12f                      // и разбухает
             x = x * swell + sin(time * 1.3f + pt.j) * jit; y = y * swell + cos(time * 1.1f + pt.j) * jit
+        } else if (pt.edge != null && tension > 0.05f && motion) {
+            // BUILD: точки дрожат всё сильнее — до 1–2 ячеек (сетка квантует, дёргаются целыми клетками)
+            val j = cell / R * 1.6f * tension
+            x += (cellHash(pt.x * 5.3f, pt.y * 9.1f + (time * 13f).toInt()) - 0.5f) * 2f * j
+            y += (cellHash(pt.y * 7.7f, pt.x * 3.9f + (time * 17f).toInt() + 13f) - 0.5f) * 2f * j
         }
         project(x, y, pt.z)
         var v = pt.w * min(1f, 0.35f + age * 22)
         if (age < 0.018f) v = 1.6f                                           // головка пера — яркая
         val e = pt.edge
+        if (e != null && stD > 0f) v = max(v, 1f + 0.6f * stD * pt.w)        // DROP: рёбра на максимум
         if (e != null && assemble >= 1) {
             val along0 = if (e.out) pt.t else 1 - pt.t
             val along = if (mDir > 0) along0 else 1 - along0
@@ -535,6 +582,8 @@ private fun DrawScope.render(p: Palette, center: Offset, scaleK: Float) {
     val bright = if (playing && motion) (Pulse.brightness - 0.5f) * 2f else 0f
     val timbre = if (bright >= 0) lerpC(p.acc, p.c2, bright * 0.35f) else lerpC(p.acc, p.c3, -bright * 0.3f)
     var base = lerpC(lerpC(timbre, n.tintColor, tint), Color.White, bangFlash * 0.85f)
+    if (stD > 0f) base = lerpC(base, p.acc, 0.35f * stD)                     // DROP: цвет — акцент
+    val dimEf = n.dim * (1f - 0.75f * calm)                                  // BREAKDOWN: точки гаснут до ~25%
     n.flash?.let { (at, dur, c) ->
         val ff = max(0f, (now - at) / dur)
         if (ff >= 1) n.flash = null
@@ -546,6 +595,19 @@ private fun DrawScope.render(p: Palette, center: Offset, scaleK: Float) {
     val off = floor((cell - dot) / 2) + dot / 2; val offHot = floor((cell - dotHot) / 2) + dotHot / 2
     n.pendingSay?.let { text -> n.pendingSay = null; if (motion) n.say = layoutSay(text, w, h, cell, cx, cy, R) }
 
+    // свет (Plus): ядро и 16 лучей под точками; на Главной — 1, на подэкранах — 0.3 и не мешает тексту.
+    // Цвет: белый по умолчанию, при «Обложке» — доминантный цвет; в провале остаётся «дышащее» ядро (2.5 с)
+    if (light > 0.02f && motion) {
+        val lightColor = if (Look.accent == Accent.AUTO && p.covered) lerpC(p.acc, Color.White, 0.2f) else Color.White
+        val shockT = (now - n.shockAt) / 1000f
+        val coreFlash = if (n.shockAt > 0 && shockT in 0f..0.12f) 1.5f * (1f - shockT / 0.12f) else 0f   // вспышка ≤ 120 мс
+        val breatheCalm = if (calm > 0.5f) 0.5f + 0.5f * sin(time * 2f * PI.toFloat() / 2.5f) else 1f
+        drawCoreGlow(Offset(cx, cy), R * (1.5f + 0.25f * bass), lightColor,
+            light * (0.35f + 0.3f * (mCore - 1f).coerceIn(0f, 1f) + coreFlash) * breatheCalm)
+        drawLightRays(Offset(cx, cy), R * 0.55f, R * 2.3f, time, lightColor, light,
+            tension = tension, drop = stD, inhale = inhale, calm = calm, bass = bass)
+    }
+
     drawIntoCanvas { canvas ->
         val nc = canvas.nativeCanvas
         paint.mode = PaintMode.FILL; paint.shader = null
@@ -556,7 +618,7 @@ private fun DrawScope.render(p: Palette, center: Offset, scaleK: Float) {
             for (st in n.stars) {
                 val vis = smooth((since - st.appear * 0.2f) / (Net.ALIVE_S * 0.8f))
                 if (vis <= 0) continue
-                val a = vis * st.base * (0.55f + 0.45f * sin(time * st.tw + st.ph)) * n.dim
+                val a = vis * st.base * (0.55f + 0.45f * sin(time * st.tw + st.ph)) * dimEf
                 if (a <= 0.02f) continue
                 val x = (((st.x - drift) % 1 + 1) % 1) * w; val y = st.y * h; val r = st.r * density
                 val c = if (st.tint) base else p.txt
@@ -598,7 +660,7 @@ private fun DrawScope.render(p: Palette, center: Offset, scaleK: Float) {
             if (v >= 1.7f) { bucket(1, 0.95f, 1f).add(gx * cell + offHot, gy * cell + offHot); continue }
             val mix = if (hot) 0.9f else near * (if (isLine) 0.6f else 0.4f)
             val alpha = max(0.12f, min(1f, (0.25f + near * 0.75f) * min(1f, v) * (if (isLine) 1.15f else 1f)))
-            val bright = if (hot) 0.55f + 0.45f * n.dim else n.dim
+            val bright = if (hot) 0.55f + 0.45f * dimEf else dimEf
             bucket(0, mix, alpha * bright).add(gx * cell + off, gy * cell + off)
         }
         // фраза из точек: символы вылетают из ядра по очереди, стоят, разом втягиваются обратно
@@ -638,6 +700,12 @@ private fun DrawScope.render(p: Palette, center: Offset, scaleK: Float) {
             nc.drawPoints(b.a.copyOf(b.n), paint)
         }
         paint.mode = PaintMode.FILL
+    }
+
+    // DROP: пиксельная ударная волна на всё окно (~0.9 с, ease-out)
+    if (n.shockAt > 0) {
+        val swT = (now - n.shockAt) / 900f
+        if (swT in 0f..1f) drawPixelShockwave(Offset(cx, cy), hypot(w, h) * 0.55f, swT, cell, lerpC(base, Color.White, 0.4f), 0.9f)
     }
 }
 

@@ -5,6 +5,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -35,6 +36,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -51,17 +54,8 @@ import melos.player.Player
 fun SidePanel(modifier: Modifier = Modifier) {
     val p = pal
     Column(modifier.clip(R.lg).background(p.card).border(1.dp, p.bd, R.lg).padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        // view-tabs из Chrome crawler
-        Row(Modifier.clip(R.pill).background(p.chip).border(1.dp, p.bd, R.pill).padding(2.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-            listOf(Side.QUEUE to "Очередь", Side.LYRICS to "Текст").forEach { (s, label) ->
-                val on = Nav.side == s
-                val bg by animateColorAsState(if (on) p.card2 else p.chip, tween(240, easing = EaseLux))
-                Box(Modifier.weight(1f).clip(R.pill).background(bg).then(if (on) Modifier.border(1.dp, p.bd, R.pill) else Modifier)
-                    .clickable { Nav.side = s }.pointerHoverIcon(PointerIcon.Hand).padding(vertical = 4.dp), contentAlignment = Alignment.Center) {
-                    Txt(label, color = if (on) p.txt else p.muted, style = T.small.copy(fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal))
-                }
-            }
-        }
+        // view-tabs: единый сегмент-компонент — явная заливка выбранного, общий радиус
+        Seg(listOf(Side.QUEUE to "Очередь", Side.LYRICS to "Текст"), Nav.side ?: Side.QUEUE, { Nav.side = it }, Modifier.fillMaxWidth(), small = true)
         when (Nav.side) {
             Side.QUEUE -> QueueView()
             Side.LYRICS -> LyricsView()
@@ -161,14 +155,23 @@ private fun LyricsView() {
             val cur = lines.indexOfLast { it.startMillis <= time + 250 }
             val state = rememberLazyListState()
             LaunchedEffect(cur) { if (cur >= 0) state.animateScrollToItem((cur - 3).coerceAtLeast(0)) }
-            LazyColumn(Modifier.fillMaxSize(), state, contentPadding = PaddingValues(vertical = 40.dp, horizontal = 6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                itemsIndexed(lines) { i, line ->
-                    val on = i == cur
-                    val color by animateColorAsState(when { on -> p.acc; i < cur -> p.muted.copy(alpha = .6f); else -> p.txt.copy(alpha = .85f) }, tween(380, easing = EaseLux))
-                    Txt(line.text?.ifBlank { "♪" } ?: "♪", Modifier.fillMaxWidth().clip(R.sm).clickable { Player.seek(line.startMillis) }.padding(4.dp),
-                        color, T.body.copy(fontSize = if (on) 17.sp else 15.sp, lineHeight = 22.sp, fontWeight = if (on) FontWeight.Bold else FontWeight.Medium,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center), maxLines = 4)
+            Box(Modifier.fillMaxSize()) {
+                LazyColumn(Modifier.fillMaxSize(), state, contentPadding = PaddingValues(vertical = 40.dp, horizontal = 6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    itemsIndexed(lines) { i, line ->
+                        val on = i == cur
+                        val color by animateColorAsState(when { on -> p.acc; i < cur -> p.muted.copy(alpha = .6f); else -> p.txt.copy(alpha = .85f) }, tween(380, easing = EaseLux))
+                        // одна высота строки для всех: акцент — цветом и весом, без скачков; без ripple-подложки
+                        val src = remember { MutableInteractionSource() }
+                        Txt(line.text?.ifBlank { "♪" } ?: "♪", Modifier.fillMaxWidth().clip(R.sm)
+                            .clickable(src, indication = null) { Player.seek(line.startMillis) }.padding(4.dp),
+                            color, T.body.copy(fontSize = 16.sp, lineHeight = 24.sp, fontWeight = if (on) FontWeight.Bold else FontWeight.Medium,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center), maxLines = 4)
+                    }
                 }
+                Box(Modifier.align(Alignment.TopCenter).fillMaxWidth().height(28.dp)
+                    .background(Brush.verticalGradient(listOf(p.card, Color.Transparent))))
+                Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(28.dp)
+                    .background(Brush.verticalGradient(listOf(Color.Transparent, p.card))))
             }
         }
         else -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(6.dp)) {

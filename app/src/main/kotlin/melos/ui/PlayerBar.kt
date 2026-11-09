@@ -96,7 +96,8 @@ fun PlayerBar(modifier: Modifier = Modifier) {
                     IconBtn(if (disliked) Ic.dislikeOn else Ic.dislike, { Player.toggleDislike(t) }, active = disliked)
                 }
             }
-            Box(Modifier.weight(1.1f), contentAlignment = Alignment.Center) { Transport(big = false) }
+            // центр — auto между двумя равными 1fr: транспорт строго по центру окна
+            Box(contentAlignment = Alignment.Center) { Transport(big = false) }
             // справа: громкость, эквалайзер, панели; на узком окне сон и скорость уходят в «ещё»
             Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.End), verticalAlignment = Alignment.CenterVertically) {
                 Volume()
@@ -129,12 +130,11 @@ fun Transport(big: Boolean) {
     val repeat by Player.repeat.collectAsState()
     val playing = status == Status.PLAYING
     val loading = status == Status.OPENING || status == Status.BUFFERING
-    val side = if (big) 26.dp else 25.dp
     val play = if (big) 76.dp else 58.dp
     val ring = if (big) 20.dp else 12.dp
     Row2(gap = if (big) 18.dp else 2.dp) {
-        IconBtn(Ic.shuffle, { Player.shuffle.value = !shuffle }, active = shuffle, size = side - 2.dp)
-        IconBtn(Ic.prev, Player::prev, tint = p.txt, size = side)
+        IconBtn(Ic.shuffle, { Player.shuffle.value = !shuffle }, active = shuffle)
+        IconBtn(Ic.prev, Player::prev, tint = p.txt)
         Box(Modifier.size(play + ring), contentAlignment = Alignment.Center) {
             Canvas(Modifier.size(play + ring)) {
                 Pulse.frame.let { }
@@ -161,11 +161,11 @@ fun Transport(big: Boolean) {
         }
         // кнопку «следующий» нижнего плеера мозг «нажимает» щупальцем в конце трека
         val press = if (big) 0f else Tentacle.press()
-        IconBtn(Ic.next, Player::next, tint = if (press > 0f) p.acc else p.txt, size = side,
+        IconBtn(Ic.next, Player::next, tint = if (press > 0f) p.acc else p.txt,
             modifier = Modifier.scale(1f - press * 0.18f).then(if (big) Modifier else Modifier.onGloballyPositioned { Tentacle.nextTarget = it.boundsInWindow().center }))
         IconBtn(if (repeat == Repeat.ONE) Ic.repeatOne else Ic.repeat, {
             Player.repeat.value = Repeat.entries[(repeat.ordinal + 1) % Repeat.entries.size]
-        }, active = repeat != Repeat.OFF, size = side - 2.dp)
+        }, active = repeat != Repeat.OFF)
     }
 }
 
@@ -209,7 +209,7 @@ private fun Seek(modifier: Modifier = Modifier) {
     // скраббинг: над полосой — крупный таймкод места, куда тянем
     val scrubAt = drag?.let { (it * length).toLong() }
     Row(modifier.height(26.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Txt(fmt(drag?.let { (it * length).toLong() } ?: time), Modifier.width(50.dp), p.txt.copy(alpha = .8f), T.monoSmall.copy(textAlign = androidx.compose.ui.text.style.TextAlign.End))
+        Txt(fmt(drag?.let { (it * length).toLong() } ?: time), Modifier.width(50.dp), p.txt.copy(alpha = .8f), T.num.copy(textAlign = androidx.compose.ui.text.style.TextAlign.End))
         Box(Modifier.weight(1f).height(26.dp)) {
             Canvas(Modifier.fillMaxWidth().height(26.dp).pointerHoverIcon(if (live) PointerIcon.Default else PointerIcon.Hand)
                 .onPointerEvent(PointerEventType.Move) { hover = it.changes.first().position.x / size.width }
@@ -237,19 +237,19 @@ private fun Seek(modifier: Modifier = Modifier) {
             hover?.takeIf { !live && length > 0 }?.let { hv ->
                 Popup(offset = IntOffset(0, -38)) {
                     Box(Modifier.clip(R.sm).background(p.card2).border(1.dp, p.bd, R.sm).padding(horizontal = 8.dp, vertical = 3.dp)) {
-                        Txt(fmt((hv * length).toLong()), style = T.monoSmall)
+                        Txt(fmt((hv * length).toLong()), style = T.num)
                     }
                 }
             }
             scrubAt?.takeIf { length > 0 }?.let { at ->
                 Popup(alignment = Alignment.TopCenter, offset = IntOffset(0, -104)) {
                     Box(Modifier.clip(R.lg).background(p.card2).border(1.dp, p.acc, R.lg).padding(horizontal = 16.dp, vertical = 7.dp)) {
-                        Txt(fmt(at), color = p.acc, style = T.h2.copy(fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace))
+                        Txt(fmt(at), color = p.acc, style = T.h2.copy(fontFeatureSettings = "tnum"))
                     }
                 }
             }
         }
-        Txt(if (live) "LIVE" else fmt(length), Modifier.width(50.dp), if (live) p.critical else p.txt.copy(alpha = .8f), T.monoSmall)
+        Txt(if (live) "LIVE" else fmt(length), Modifier.width(50.dp), if (live) p.critical else p.txt.copy(alpha = .8f), T.num)
     }
 }
 
@@ -269,7 +269,7 @@ private fun Volume() {
             properties = androidx.compose.ui.window.PopupProperties(focusable = true), onPreviewKeyEvent = popupKey({ open = false })) {
             Column(Modifier.width(64.dp).clip(R.lg).background(p.card2).border(1.dp, p.bd, R.lg).then(wheel).padding(vertical = 12.dp),
                 horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Txt("$vol", color = p.txt, style = T.monoSmall)
+                Txt("$vol", color = p.txt, style = T.num)
                 Canvas(Modifier.width(44.dp).height(170.dp).pointerHoverIcon(PointerIcon.Hand)
                     .pointerInput(Unit) { detectTapGestures { set(((1 - it.y / size.height) * 100).roundToInt()) } }
                     .pointerInput(Unit) { detectDragGestures { c, _ -> set(((1 - c.position.y / size.height) * 100).roundToInt()) } }) {
@@ -299,7 +299,7 @@ private fun SleepButton() {
     Box {
         Row2(gap = 0.dp) {
             IconBtn(Ic.moon, { open = !open }, active = at != null)
-            at?.let { Txt(fmt(it - now), color = p.acc, style = T.monoSmall) }
+            at?.let { Txt(fmt(it - now), color = p.acc, style = T.num) }
         }
         if (open) Popup(alignment = Alignment.BottomCenter, offset = IntOffset(0, -44), onDismissRequest = { open = false }, properties = androidx.compose.ui.window.PopupProperties(focusable = true), onPreviewKeyEvent = popupKey({ open = false })) {
             val pop by androidx.compose.animation.core.animateFloatAsState(if (open) 1f else 0f, tween(220, easing = EaseLux))

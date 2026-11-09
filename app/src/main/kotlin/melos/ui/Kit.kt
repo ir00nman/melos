@@ -10,6 +10,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -22,6 +23,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -64,6 +66,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.math.min
 import kotlin.math.sin
 import kotlinx.coroutines.delay
 
@@ -79,32 +82,34 @@ fun Txt(
 )
 
 @Composable
-fun Card(modifier: Modifier = Modifier, shape: Shape = R.lg, color: Color = pal.card, pad: Dp = 14.dp, content: @Composable ColumnScope.() -> Unit) =
+fun Card(modifier: Modifier = Modifier, shape: Shape = R.lg, color: Color = pal.card, pad: Dp = 16.dp, content: @Composable ColumnScope.() -> Unit) =
     Column(modifier.clip(shape).background(color).border(1.dp, pal.bd, shape).padding(pad), content = content)
 
 @Composable
 fun Cap(text: String, modifier: Modifier = Modifier) = Txt(text.uppercase(), modifier, pal.muted, T.cap)
 
-// Нажатие — утяжеление по «бархату», наведение — цветение рамки акцентом (Motion-Luxe §6).
+// Нажатие — утяжеление по «бархату», наведение/фокус — цветение рамки акцентом (Motion-Luxe §6).
 @Composable
-fun Modifier.lux(onClick: (() -> Unit)?, shape: Shape = R.pill, bloom: Boolean = true): Modifier {
+fun Modifier.lux(onClick: (() -> Unit)?, shape: Shape = R.pill, bloom: Boolean = true, enabled: Boolean = true): Modifier {
     if (onClick == null) return this
     val src = remember { MutableInteractionSource() }
     val hovered by src.collectIsHoveredAsState()
     val pressed by src.collectIsPressedAsState()
+    val focused by src.collectIsFocusedAsState()
     // пружинка: нажатие проваливает кнопку, отпускание возвращает с лёгким перелётом — тактильно, как физическая
-    val scale by androidx.compose.animation.core.animateFloatAsState(if (pressed) 0.955f else 1f,
+    val scale by androidx.compose.animation.core.animateFloatAsState(if (pressed && enabled) 0.955f else 1f,
         androidx.compose.animation.core.spring(
             dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
             stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow))
     val p = pal
-    val border by animateColorAsState(if (hovered && bloom) lerpC(p.bd, p.acc, 0.72f) else Color.Transparent, tween(280, easing = EaseLux))
+    val border by animateColorAsState(if ((hovered || focused) && bloom) lerpC(p.bd, p.acc, if (focused) 0.9f else 0.72f) else Color.Transparent, tween(280, easing = EaseLux))
     return this
         .scale(scale)
         .then(if (bloom) Modifier.border(1.dp, border, shape) else Modifier)
         .clip(shape)
+        .alpha(if (enabled) 1f else 0.45f)
         .hoverable(src)
-        .clickable(src, indication = null, onClick = onClick)
+        .clickable(src, indication = null, onClick = onClick, enabled = enabled)
         .pointerHoverIcon(PointerIcon.Hand)
 }
 
@@ -123,33 +128,25 @@ fun RoundButton(icon: ImageVector, onClick: () -> Unit, modifier: Modifier = Mod
 }
 
 @Composable
-// Зона нажатия не меньше 44×44, сама иконка может быть мельче.
-fun IconBtn(icon: ImageVector, onClick: () -> Unit, modifier: Modifier = Modifier, tint: Color = pal.txt.copy(alpha = .86f), size: Dp = 20.dp, active: Boolean = false) {
+// Иконочная кнопка: цель 40×40, иконка по умолчанию 22; подложка — только у активных (+ едва заметный hover).
+fun IconBtn(icon: ImageVector, onClick: () -> Unit, modifier: Modifier = Modifier, tint: Color = pal.txt.copy(alpha = .86f), size: Dp = 22.dp, active: Boolean = false) {
     val src = remember { MutableInteractionSource() }
     val hovered by src.collectIsHoveredAsState()
     val p = pal
-    Box(modifier.size(maxOf(44.dp, size + 24.dp)).clip(CircleShape).hoverable(src).clickable(src, null, onClick = onClick).pointerHoverIcon(PointerIcon.Hand)
-        .background(if (active) p.acc.copy(alpha = .14f) else if (hovered) p.txt.copy(alpha = 0.09f) else Color.Transparent), contentAlignment = Alignment.Center) {
-        Icon(icon, if (active) p.acc else if (hovered) p.txt else tint, size = size)
+    Box(modifier.size(40.dp).clip(CircleShape).hoverable(src).clickable(src, null, onClick = onClick).pointerHoverIcon(PointerIcon.Hand)
+        .background(if (active) p.acc.copy(alpha = .14f) else if (hovered) p.txt.copy(alpha = 0.06f) else Color.Transparent), contentAlignment = Alignment.Center) {
+        Icon(icon, if (active) p.acc else if (hovered) p.txt else tint, size = size.coerceAtMost(22.dp))
     }
 }
 
-// Акцентная кнопка: по ней пробегает металлический блик при наведении.
+// Акцентная кнопка: ровная заливка акцентом (в моно — белая), чёрный текст; одна высота с secondary.
 @Composable
-fun PrimaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, icon: ImageVector? = null) {
+fun PrimaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, icon: ImageVector? = null, enabled: Boolean = true) {
     val p = pal
-    val src = remember { MutableInteractionSource() }
-    val hovered by src.collectIsHoveredAsState()
-    val shine by animateFloatAsState(if (hovered) 1.32f else -0.45f, tween(if (hovered) 680 else 0, easing = EaseLux))
     Row(
-        modifier.shadow(10.dp, R.pill, ambientColor = p.acc, spotColor = p.acc.copy(alpha = .6f)).clip(R.pill).background(p.acc)
-            .hoverable(src).lux(onClick, R.pill, bloom = false)
-            .drawWithContent {
-                drawContent()
-                val x = size.width * shine
-                drawRect(Brush.linearGradient(listOf(Color.Transparent, Color.White.copy(alpha = .42f), Color.Transparent),
-                    start = Offset(x - size.width * .25f, 0f), end = Offset(x + size.width * .15f, size.height)))
-            }
+        modifier.shadow(4.dp, R.pill, ambientColor = Color.Black, spotColor = Color.Black.copy(alpha = .35f)).clip(R.pill).background(p.acc)
+            .lux(onClick, R.pill, bloom = false, enabled = enabled)
+            .heightIn(min = 44.dp)
             .padding(horizontal = 20.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -159,10 +156,13 @@ fun PrimaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifi
 }
 
 @Composable
-fun Btn(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, icon: ImageVector? = null, danger: Boolean = false) {
+// Secondary: контур 1 dp, прозрачная заливка; одна высота с primary.
+fun Btn(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, icon: ImageVector? = null, danger: Boolean = false, enabled: Boolean = true) {
     val p = pal
     Row(
-        modifier.clip(R.pill).background(p.card2).border(1.dp, if (danger) p.critical.copy(alpha = .6f) else p.bd, R.pill).lux(onClick)
+        modifier.clip(R.pill).background(p.card2).border(1.dp, if (danger) p.critical.copy(alpha = .6f) else p.bd, R.pill)
+            .lux(onClick, enabled = enabled)
+            .heightIn(min = 44.dp)
             .padding(horizontal = 18.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
@@ -293,7 +293,7 @@ fun fmt(ms: Long): String {
 @Composable
 fun Empty(text: String, modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit = {}) =
     Column(modifier.padding(24.dp).width(300.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        SleepDots()                                          // спящий мозг: дуга дышащих точек над текстом
+        HexDots()                                            // контур шестиугольника из дышащих точек — знак логотипа
         Txt(text, color = pal.muted, style = T.body.copy(textAlign = androidx.compose.ui.text.style.TextAlign.Center), maxLines = 6)
         content()
     }
@@ -308,23 +308,54 @@ fun Modifier.shake(key: Long): Modifier {
     return if (v <= 0f) this else graphicsLayer { translationX = sin(v * 3 * Math.PI).toFloat() * 6f * v }
 }
 
-// Дуга из 11 точек с медленной «дыхательной» волной — спокойная жизнь там, где пусто.
+// Контур шестиугольника из точек с медленной «дыхательной» волной, бегущей по периметру, — фирменный знак там, где пусто.
 @Composable
-private fun SleepDots() {
+private fun HexDots() {
     if (!Look.motion) return
     val p = pal
     var frame by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
     androidx.compose.runtime.LaunchedEffect(Unit) { while (true) androidx.compose.runtime.withFrameNanos { frame = it } }
-    Canvas(Modifier.width(120.dp).height(28.dp)) {
+    Canvas(Modifier.width(120.dp).height(56.dp)) {
         frame.let { }
         val now = System.currentTimeMillis() / 1000f
-        for (k in 0..10) {
-            val t = k / 10f
+        val c = Offset(size.width / 2f, size.height / 2f)
+        val r = min(size.width, size.height) / 2f * 0.72f
+        // вершины плоского (flat-top) шестиугольника
+        val v = (0..5).map { k ->
+            val a = Math.toRadians(60.0 * k)
+            Offset(c.x + r * kotlin.math.cos(a).toFloat(), c.y + r * kotlin.math.sin(a).toFloat())
+        }
+        val side = r                                                        // сторона = радиусу у правильного шестиугольника
+        val n = 18
+        for (k in 0 until n) {
+            val t = k / n.toFloat()
+            val s = t * 6f * side                                           // дуга по периметру
+            val e = (s / side).toInt() % 6                                  // номер ребра
+            val u = (s - e * side) / side                                   // положение на ребре 0..1
+            val a = v[e]; val b = v[(e + 1) % 6]
             val breathe = 0.5f + 0.5f * kotlin.math.sin(now * 1.4f - t * 2.6f)
-            val lift = breathe * 5.dp.toPx()
-            val c = lerpC(p.acc, p.c2, t)
-            drawCircle(c.copy(alpha = 0.20f + 0.45f * breathe), (1.6f + 1.2f * breathe).dp.toPx(),
-                Offset(size.width * t + (size.width / 10f) / 2 - 2.dp.toPx(), size.height - 4.dp.toPx() - lift))
+            drawCircle(lerpC(p.acc, p.c2, t).copy(alpha = 0.20f + 0.45f * breathe), (1.4f + 1.1f * breathe).dp.toPx(),
+                Offset(a.x + (b.x - a.x) * u, a.y + (b.y - a.y) * u))
+        }
+    }
+}
+
+/** Подсказка при наведении (обрезанный текст и т.п.) — работает и на десктопе, и на Android. */
+@Composable
+fun HoverTip(text: String, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    val p = pal
+    val src = remember { MutableInteractionSource() }
+    val hovered by src.collectIsHoveredAsState()
+    Box(modifier.hoverable(src)) {
+        content()
+        if (hovered) {
+            val dy = with(androidx.compose.ui.platform.LocalDensity.current) { 30.dp.roundToPx() }
+            androidx.compose.ui.window.Popup(offset = androidx.compose.ui.unit.IntOffset(0, dy),
+                properties = androidx.compose.ui.window.PopupProperties(focusable = false)) {
+                Box(Modifier.clip(R.sm).background(p.card2).border(1.dp, p.bd, R.sm).padding(horizontal = 10.dp, vertical = 6.dp)) {
+                    Txt(text, color = p.txt, style = T.small, maxLines = 4)
+                }
+            }
         }
     }
 }

@@ -61,6 +61,16 @@ object Net {
     const val ABSORB_MS = 2200f; const val GROW_F = 0.22f; const val PULL_F = 0.82f
     const val SAY_OUT = 480f; const val SAY_CHAR = 45f; const val SAY_HOLD = 2000f; const val SAY_IN = 460f; const val SAY_JITTER = 90f
 
+    // Поза логотипа (пауза/простой): вид на грань икосаэдра — шестиугольник с перевёрнутым треугольником.
+    // Точное совмещение с лого (плоские верх/низ И треугольник на серединах сторон) проекцией икосаэдра
+    // недостижимо: сдвиг треугольника к шестиугольнику у проекции фиксирован (0°, в лого — 30°).
+    // Выбран апекс треугольника вниз — самый заметный элемент знака; шестиугольник при этом вершиной вверх.
+    const val POSE_YAW = 0.3649f
+    const val POSE_TILT = 3.1416f     // π: грань смотрит на камеру
+    const val POSE_ROLL = -0.5236f    // −30°: апекс треугольника вниз
+    /** 0 — свободное вращение, 1 — застыла в позе логотипа. */
+    var poseK = 0f
+
     class Node(val x: Float, val y: Float, val z: Float, val size: Float, val beat: Float) {
         var appear = 0f; var order = 0f; var r = 0f; var idx = 0; var fireAt = 0L; var band = 0; var bandOn = false; var sparkedAt = 0L
     }
@@ -243,6 +253,7 @@ object Net {
     var lastHatAt = 0L; var glitchAt = 0L                                   // глитч-срез на хэтах
     val glitchRows = FloatArray(3); val glitchShift = FloatArray(3)
     var lastCx = 0f; var lastCy = 0f
+    var shockAt = 0L                                            // пиксельная ударная волна + вспышка ядра на дропе
 
     /** Вершины на экране в координатах окна (x, y) — отсюда щупальце тянется к кнопкам плеера. */
     val nodeWin = FloatArray(64 * 2)
@@ -252,7 +263,11 @@ object Net {
     fun wave(s: Float = 1f) { waves.addLast(System.currentTimeMillis() to s); if (waves.size > 4) waves.removeFirst() }
     fun flashColor(c: Color, dur: Float = 900f) { flash = Triple(System.currentTimeMillis(), dur, c) }
     fun shrink(amt: Float, dur: Float, freeze: Float = 0f) { squeezeAt = System.currentTimeMillis(); squeeze = floatArrayOf(0f, dur, amt, freeze) }
-    fun poke() { pokeAt = System.currentTimeMillis(); pokeSeed++ }
+    /** Все толчки вращения — только через губернатор (клик ≤ 0.08 рад/с). */
+    fun poke() { pokeAt = System.currentTimeMillis(); pokeSeed++; spin.kick(0.08f) }
+
+    /** Ограничитель вращения: скорость пружиной к цели, толчки ограничены, старт/стоп плавные (~0.8 с). */
+    val spin = melos.player.SpinGovernor()
 
     fun react(kind: String, p: Palette) {
         activeAt = System.currentTimeMillis()

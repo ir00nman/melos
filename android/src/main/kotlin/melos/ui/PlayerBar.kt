@@ -155,7 +155,7 @@ private fun PlayerSeek(modifier: Modifier, live: Boolean) {
     var drag by remember { androidx.compose.runtime.mutableStateOf<Float?>(null) }
     val frac = drag ?: if (length > 0) (time.toFloat() / length).coerceIn(0f, 1f) else 0f
     Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Txt(fmt(drag?.let { (it * length).toLong() } ?: time), Modifier, p.muted, T.monoSmall)
+        Txt(fmt(drag?.let { (it * length).toLong() } ?: time), Modifier, p.muted, T.num)
         Box(Modifier.weight(1f).height(30.dp)) {
             Canvas(Modifier.fillMaxWidth().height(30.dp)
                 .pointerInput(length, live) { detectTapGestures { if (!live && length > 0) Player.seek((it.x / size.width * length).toLong()) } }
@@ -172,6 +172,6 @@ private fun PlayerSeek(modifier: Modifier, live: Boolean) {
                 drawCircle(Color.White, 5.dp.toPx(), Offset(size.width * frac, cy))
             }
         }
-        Txt(if (live) "LIVE" else fmt(length), Modifier, p.muted, T.monoSmall)
+        Txt(if (live) "LIVE" else fmt(length), Modifier, p.muted, T.num)
     }
 }

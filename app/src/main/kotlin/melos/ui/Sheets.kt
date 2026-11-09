@@ -174,7 +174,7 @@ fun SettingsSheet() {
             Row2(Modifier.padding(top = 12.dp)) {
                 Txt("Сдвиг анимаций", Modifier.weight(1f))
                 Btn("−20", { Pulse.setSyncShift(Pulse.syncShiftMs - 20) })
-                Txt("${Pulse.syncShiftMs} мс", Modifier.width(72.dp), style = T.monoSmall.copy(textAlign = androidx.compose.ui.text.style.TextAlign.Center))
+                Txt("${Pulse.syncShiftMs} мс", Modifier.width(72.dp), style = T.num.copy(textAlign = androidx.compose.ui.text.style.TextAlign.Center))
                 Btn("+20", { Pulse.setSyncShift(Pulse.syncShiftMs + 20) })
             }
             Txt("Качество потока", Modifier.padding(top = 12.dp), style = T.body)
@@ -208,7 +208,7 @@ fun SettingsSheet() {
         }
         SheetCard(n++) {
             Cap("Плагины Murglar")
-            Txt(Paths.plugins.path, Modifier.padding(top = 6.dp), p.muted, T.monoSmall)
+            Txt(Paths.plugins.path, Modifier.padding(top = 6.dp), p.muted, T.num)
             Row2(Modifier.padding(top = 10.dp)) {
                 Btn("Открыть папку", { melos.core.Browse.dir(Paths.plugins) }, icon = Ic.folder)
                 Btn("Перезагрузить", { Services.load(); Toasts.shortNotify("Плагины перезагружены") }, icon = Ic.refresh)
@@ -358,7 +358,7 @@ private fun PrefRow(pref: com.badmanners.murglar.lib.core.preference.Preference)
             Btn("Выполнить", { pref.action(); changed(pref.refreshAllAfterInvoke); Toasts.shortNotify("Готово") })
         }
         is CopyPreference -> Row2(Modifier.padding(top = 10.dp)) {
-            Column(Modifier.weight(1f)) { Txt(pref.title); Txt(pref.displayGetter(), color = p.muted, style = T.monoSmall) }
+            Column(Modifier.weight(1f)) { Txt(pref.title); Txt(pref.displayGetter(), color = p.muted, style = T.num) }
             val cb = androidx.compose.ui.platform.LocalClipboardManager.current
             Btn("Копировать", { cb.setText(androidx.compose.ui.text.AnnotatedString(pref.getter())) }, icon = Ic.link)
         }
@@ -445,7 +445,7 @@ private fun EqBar(label: String, value: Float, reset: Float = 0f, shownOffset: F
         // подпись — число как в Murglar (у усиления шкала VLC: 12 = без изменений); дробные — после «Как в Murglar»
         val d = value - shownOffset
         val shown = (if (d > 0.05f) "+" else "") + (if (kotlin.math.abs(d - kotlin.math.round(d)) < 0.05f) d.roundToInt().toString() else "%.1f".format(d))
-        Txt("$shown дБ", color = if (kotlin.math.abs(d) >= 0.25f) p.txt else p.txt.copy(alpha = .7f), style = T.monoSmall)
+        Txt("$shown дБ", color = if (kotlin.math.abs(d) >= 0.25f) p.txt else p.txt.copy(alpha = .7f), style = T.num)
         Canvas(Modifier.weight(1f).width(44.dp).pointerHoverIcon(PointerIcon.Hand)
             .pointerInput(Unit) {
                 detectTapGestures(onDoubleTap = { change(reset) }) { change(snap((1 - it.y / size.height) * 40f - 20f)) }

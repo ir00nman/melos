@@ -274,7 +274,7 @@ private fun MatchBadge(g: melos.search.TrackMatch.Group) {
     Row2(gap = 6.dp) {
         // совпал с эталоном из каталогов лейблов (Deezer, iTunes): исполнитель, название и длительность — те самые
         if (g.original) Row2(gap = 3.dp) { Icon(Ic.check, p.ok, size = 12.dp); Txt("оригинал", color = p.ok, style = T.small) }
-        Txt(g.best.label, color = if (g.best.kbps >= 1411) p.acc else p.muted, style = T.monoSmall)
+        Txt(g.best.label, color = if (g.best.kbps >= 1411) p.acc else p.muted, style = T.num)
         g.services.forEach { id ->
             ServiceLogo(id, 14.dp, Modifier.alpha(if (id == g.best.serviceId) 1f else .45f))
         }

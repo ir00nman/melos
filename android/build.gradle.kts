@@ -34,6 +34,7 @@ val sharedExcludes = listOf(
     "melos/Main.kt",
     // каркас окна — своя мобильная оболочка (DroidRoot):
     "melos/ui/App.kt", "melos/ui/Images.kt", "melos/ui/Rows.kt", "melos/ui/Brain.kt", "melos/ui/PlayerBar.kt", "melos/ui/ScrollList.kt", "melos/ui/Stage.kt",
+    "melos/ui/Fonts.kt",
     // свои реализации тех же пакетов:
     "melos/core/Paths.kt",
     "melos/host/Chromium.kt", "melos/host/EmbeddedWebView.kt", "melos/host/HttpNetwork.kt",

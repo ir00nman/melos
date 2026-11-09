@@ -6,12 +6,14 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -49,7 +51,7 @@ fun MelosMenu() {
 }
 
 @Composable
-fun ServiceMenu(s: Service) {
+fun ColumnScope.ServiceMenu(s: Service) {
     val p = pal
     Services.revision.collectAsState().value                          // вход/выход сервиса — меню перерисовывается (иначе Compose его пропустит)
     val resolver = s.murglar.nodeResolver
@@ -81,10 +83,12 @@ fun ServiceMenu(s: Service) {
     roots.filter { it.nodePath.last !in shown }.forEach { node ->
         SideItem(node.nodeName, (Nav.current as? Screen.Open)?.node?.nodePath == node.nodePath) { openNode(node) }
     }
-    if (canLogin || s.murglar.murglarPreferences.isNotEmpty())
+    if (canLogin || s.murglar.murglarPreferences.isNotEmpty()) {
+        Spacer(Modifier.weight(1f))                                       // «Аккаунт» прижат к низу меню
         SideItem(if (login.isLogged || !canLogin) "Аккаунт" else if (roots.isEmpty() && !searchable) "Войти, чтобы открыть" else "Войти в аккаунт", false, dim = true) {
             Nav.loginFor = s.id; Nav.sheet = Sheet.SETTINGS
         }
+    }
 }
 
 /** Раскладка меню сервиса как на его сайте: (заголовок группы или null) → id корневых разделов по порядку. */
@@ -108,16 +112,16 @@ val HIDDEN_BUILTINS = setOf("local")
 
 @Composable
 fun SideTitle(text: String) =
-    Txt(text, Modifier.padding(start = 10.dp, end = 6.dp, bottom = 6.dp), pal.txt, T.h2.copy(fontSize = 22.sp, fontWeight = FontWeight.Bold), maxLines = 2)
+    Txt(text, Modifier.padding(start = 10.dp, end = 6.dp, bottom = 6.dp), pal.txt, T.h2.copy(fontSize = 20.sp, fontWeight = FontWeight.Bold), maxLines = 1)
 
 @Composable
 fun SideItem(text: String, on: Boolean, badge: String? = null, dim: Boolean = false, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val p = pal
     val bg by animateColorAsState(if (on) p.acc.copy(alpha = .14f) else Color.Transparent, tween(240, easing = EaseLux))
-    Row(modifier.fillMaxWidth().heightIn(min = 40.dp).clip(R.md).background(bg).lux(onClick, R.md, bloom = false).padding(horizontal = 10.dp, vertical = 8.dp),
+    Row(modifier.fillMaxWidth().heightIn(min = 44.dp).clip(R.pill).background(bg).lux(onClick, R.pill, bloom = false).padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically) {
         Txt(text, Modifier.weight(1f), if (on) p.acc else if (dim) p.muted else lerpC(p.txt, p.acc, .3f),
-            T.body.copy(fontSize = 16.sp, fontWeight = if (on) FontWeight.SemiBold else FontWeight.Medium), maxLines = 2)
-        badge?.let { Txt(it, color = p.muted, style = T.monoSmall) }
+            T.body.copy(fontSize = 15.sp, fontWeight = if (on) FontWeight.SemiBold else FontWeight.Medium), maxLines = 2)
+        badge?.let { Txt(it, color = p.muted, style = T.num) }
     }
 }

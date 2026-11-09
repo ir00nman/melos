@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.runtime.remember
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -59,9 +60,14 @@ fun Stage(modifier: Modifier) {
     val p = pal
     val screen = Nav.current
     val home = screen == Screen.Home
-    val artAlpha by androidx.compose.animation.core.animateFloatAsState(if (home) 1f else if (p.dark) .32f else .25f, tween(400))
+    val artAlpha by androidx.compose.animation.core.animateFloatAsState(if (home) 1f else .5f, tween(400))
     Box(modifier.clip(R.lg).background(p.card).border(1.dp, p.bd, R.lg)) {
-        if (Look.brain && !home) Brain(Modifier.fillMaxSize().alpha(artAlpha), interactive = false)
+        if (Look.brain && !home) {
+            Brain(Modifier.fillMaxSize().alpha(artAlpha), interactive = false, light = 0.3f)
+            // scrim: контент важнее фона — под текстом и кнопками «мозг» почти не просвечивает
+            Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Brush.verticalGradient(
+                listOf(p.bg.copy(alpha = 0.9f), p.bg.copy(alpha = 0.82f), p.bg.copy(alpha = 0.94f)))))
+        }
         Box(Modifier.fillMaxSize()) {
             when (screen) {
                 Screen.Home -> HomeScreen()
@@ -104,11 +110,14 @@ fun Sidebar(modifier: Modifier, rail: Boolean) {
         }
         val scroll = rememberScrollState()
         Box(Modifier.width(if (rail) 184.dp else 216.dp).fillMaxHeight().clip(R.lg).background(p.card).border(1.dp, p.bd, R.lg)) {
-            Column(Modifier.fillMaxSize().verticalScroll(scroll).padding(horizontal = 8.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                val service = services.firstOrNull { it.id == sel }
-                if (service == null) MelosMenu() else ServiceMenu(service)
+            androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
+                Column(Modifier.fillMaxSize().verticalScroll(scroll).heightIn(min = maxHeight)
+                    .padding(horizontal = 8.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                    val service = services.firstOrNull { it.id == sel }
+                    if (service == null) MelosMenu() else ServiceMenu(service)
+                }
+                VerticalScrollbar(rememberScrollbarAdapter(scroll), Modifier.align(Alignment.CenterEnd))
             }
-            VerticalScrollbar(rememberScrollbarAdapter(scroll), Modifier.align(Alignment.CenterEnd))
         }
     }
 }
@@ -117,13 +126,15 @@ fun Sidebar(modifier: Modifier, rail: Boolean) {
 @Composable
 private fun RailButton(name: String, on: Boolean, icon: @Composable (Boolean) -> Unit, dot: Color? = null, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val p = pal
-    val bg by animateColorAsState(if (on) p.acc.copy(alpha = .18f) else Color.Transparent, tween(240, easing = EaseLux))
+    val bg by animateColorAsState(if (on) p.acc.copy(alpha = .14f) else Color.Transparent, tween(240, easing = EaseLux))
     androidx.compose.foundation.TooltipArea(tooltip = {
         Box(Modifier.clip(R.sm).background(p.card2).border(1.dp, p.bd, R.sm).padding(horizontal = 10.dp, vertical = 6.dp)) { Txt(name, color = p.txt, style = T.small) }
     }, delayMillis = 350, tooltipPlacement = androidx.compose.foundation.TooltipPlacement.CursorPoint(offset = androidx.compose.ui.unit.DpOffset(16.dp, 8.dp))) {
+        // выбранная — круглая подложка; от логотипа остаются линия и круглые скругления, без многоугольных обводок
         Box(modifier.size(44.dp).clip(CircleShape).background(bg).lux(onClick, CircleShape, bloom = false), contentAlignment = Alignment.Center) {
             icon(on)
-            if (dot != null) Box(Modifier.align(Alignment.TopEnd).padding(5.dp).size(7.dp).clip(CircleShape).background(dot))
+            // точка входа: один и тот же угол у всех, с канвой цвета панели — не налезает на знак и не обрезается
+            if (dot != null) Box(Modifier.align(Alignment.TopEnd).padding(3.dp).size(7.dp).clip(CircleShape).background(dot).border(1.5.dp, p.card, CircleShape))
         }
     }
 }

@@ -68,12 +68,13 @@ fun DotCover(url: String?, size: Dp, modifier: Modifier = Modifier) {
                 }, contentScale = ContentScale.Crop)
             }
         }
-        // рамка из точек: по периметру, точка — полоса спектра, на бит рамка вспыхивает
+        // рамка из пикселей: по периметру, точка — полоса спектра, на бит рамка вспыхивает;
+        // та же сетка-язык, что у мозга: квадратики, яркость ступенями
         Canvas(Modifier.fillMaxSize()) {
             Pulse.frame.let { }
             val beat = Pulse.beat()
             val count = 64; val inset = pad.toPx() - 6.dp.toPx(); val side = size.toPx() + 12.dp.toPx()
-            val dot = 2.6.dp.toPx()
+            val cell = 3.4.dp.toPx()
             for (k in 0 until count) {
                 val t = k / count.toFloat() * 4
                 val e = t - floor(t)
@@ -85,7 +86,7 @@ fun DotCover(url: String?, size: Dp, modifier: Modifier = Modifier) {
                 }
                 val b = Pulse.bands[(k * Pulse.bands.size / count) % Pulse.bands.size]
                 val a = (0.18f + b * 0.8f + beat * 0.3f).coerceIn(0f, 1f)
-                drawCircle(lerpC(p.acc, p.c2, k / count.toFloat()).copy(alpha = a), dot * (1 + b * 0.8f) / 2, pt)
+                drawPixel(Offset(PixelFx.snap(pt.x, cell), PixelFx.snap(pt.y, cell)), cell, lerpC(p.acc, p.c2, k / count.toFloat()), PixelFx.quant(a))
             }
         }
     }

@@ -80,7 +80,7 @@ fun TrackRow(
                 Bars(status == Status.PLAYING, Color.White)
             }
         } else Box(Modifier.width(24.dp), contentAlignment = Alignment.Center) {
-            if (isCurrent) Bars(status == Status.PLAYING, p.acc) else Txt("${index + 1}", color = p.muted, style = T.monoSmall)
+            if (isCurrent) Bars(status == Status.PLAYING, p.acc) else Txt("${index + 1}", color = p.muted, style = T.num)
         }
         Column(Modifier.weight(1f)) {
             Txt(track.fullTitle, color = if (isCurrent) p.acc else p.txt, style = T.body.copy(fontWeight = FontWeight.Medium))
@@ -90,11 +90,11 @@ fun TrackRow(
         if (showLike) IconBtn(if (liked) Ic.heartOn else Ic.heart, { Player.toggleLike(track); if (!liked) BrainBus.heart() }, size = 15.dp, active = liked, modifier = Modifier.shake(Player.likeFailedAt))
         trailing?.invoke()
         when (val d = downloads[track.mediaId]) {
-            is Downloads.State.Running -> Txt("${(d.progress * 100).toInt()}%", color = p.acc, style = T.monoSmall)
+            is Downloads.State.Running -> Txt("${(d.progress * 100).toInt()}%", color = p.acc, style = T.num)
             is Downloads.State.Done -> Icon(Ic.check, p.ok, size = 13.dp)
             else -> {}
         }
-        Txt(if (track.durationMs > 0) fmt(track.durationMs) else "LIVE", color = if (track.durationMs > 0) p.muted else p.critical, style = T.monoSmall)
+        Txt(if (track.durationMs > 0) fmt(track.durationMs) else "LIVE", color = if (track.durationMs > 0) p.muted else p.critical, style = T.num)
     }
 }
 
@@ -114,8 +114,6 @@ fun NodeCard(node: Node, modifier: Modifier = Modifier, index: Int = 0, onClick:
     val p = pal
     val src = remember { MutableInteractionSource() }
     val hovered by src.collectIsHoveredAsState()
-    val lastPlay = remember { androidx.compose.runtime.mutableLongStateOf(0L) }
-    fun playOnce() { val now = System.currentTimeMillis(); if (now - lastPlay.longValue > 400) { lastPlay.longValue = now; onPlay() } }
     val round = node.nodeType == NodeType.ARTIST
     val fallback = when (node.nodeType) { NodeType.ARTIST -> Ic.user; NodeType.ALBUM -> Ic.disc; NodeType.PLAYLIST -> Ic.list; NodeType.RADIO -> Ic.wave; else -> Ic.folder }
     Column(

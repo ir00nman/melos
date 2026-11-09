@@ -15,7 +15,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.Image
 import androidx.compose.ui.graphics.ColorFilter
 
-// Линейные иконки в духе Chrome crawler: 24×24, штрих 1.7, скруглённые концы. "F:" в начале пути — заливка.
+// Линейные иконки — язык логотипа: 24×24, один штрих 1.75, круглые концы и стыки.
+// "F:" в начале пути — заливка; допускается только для play/pause/next/prev и сердец (лайк/дизлайк).
 object Ic {
     private fun icon(name: String, vararg paths: String): ImageVector = ImageVector.Builder(name, 24.dp, 24.dp, 24f, 24f).apply {
         paths.forEach { p ->
@@ -24,7 +25,7 @@ object Ic {
                 pathData = addPathNodes(p.removePrefix("F:")),
                 fill = if (fill) SolidColor(Color.Black) else null,
                 stroke = if (fill) null else SolidColor(Color.Black),
-                strokeLineWidth = 1.7f, strokeLineCap = StrokeCap.Round, strokeLineJoin = StrokeJoin.Round,
+                strokeLineWidth = 1.75f, strokeLineCap = StrokeCap.Round, strokeLineJoin = StrokeJoin.Round,
             )
         }
     }.build()
@@ -50,28 +51,30 @@ object Ic {
     val home = icon("home", "M4 10.5L12 4l8 6.5V19a1 1 0 0 1-1 1h-4.5v-5.5h-5V20H5a1 1 0 0 1-1-1z")
     val clock = icon("clock", "M12 3.5a8.5 8.5 0 1 1 0 17 8.5 8.5 0 0 1 0-17z", "M12 7.5V12l3 2")
     val download = icon("download", "M12 4v11", "M7 10.5l5 5 5-5", "M5 19.5h14")
-    val queue = icon("queue", "M4 6h12M4 11h12M4 16h7", "F:M15 14v6l5-3z")
+    val queue = icon("queue", "M4 6h12M4 11h12M4 16h7", "M15.2 14.2v5.6l4.6-2.8z")
     val lyrics = icon("lyrics", "M5 6.5h14M5 11h10M5 15.5h12M5 20h6")
     val moon = icon("moon", "M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z")
     val chevronDown = icon("chevronDown", "M6 9.5l6 6 6-6")
-    val eq = icon("eq", "M6 4v16M12 4v16M18 4v16", "F:M4 13h4v2.6H4zM10 7h4v2.6h-4zM16 15h4v2.6h-4z")
-    val volume = icon("volume", "F:M4 9.5h3.5L12 5.5v13l-4.5-4H4z", "M15.5 9a4 4 0 0 1 0 6", "M18 6.5a7.5 7.5 0 0 1 0 11")
-    val mute = icon("mute", "F:M4 9.5h3.5L12 5.5v13l-4.5-4H4z", "M16 9.5l5 5M21 9.5l-5 5")
+    val eq = icon("eq", "M6 4v16M12 4v16M18 4v16", "M4 13h4v2.6H4zM10 7h4v2.6h-4zM16 15h4v2.6h-4z")
+    val volume = icon("volume", "M12 5.5v13l-4.5-4H4V9.5h3.5z", "M15.5 9a4 4 0 0 1 0 6", "M18 6.5a7.5 7.5 0 0 1 0 11")
+    val mute = icon("mute", "M12 5.5v13l-4.5-4H4V9.5h3.5z", "M16 9.5l5 5M21 9.5l-5 5")
     val folder = icon("folder", "M3.5 7a2 2 0 0 1 2-2h4l2 2.2h7a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z")
     val wave = icon("wave", "M2.5 15c2.5-8 5-8 7.5 0s5 8 7.5 0c1-3 2-4.6 4-5")
     val radio = icon("radio", "M12 12m-1.6 0a1.6 1.6 0 1 0 3.2 0 1.6 1.6 0 1 0-3.2 0", "M8.2 8.2a5.4 5.4 0 0 0 0 7.6M15.8 8.2a5.4 5.4 0 0 1 0 7.6", "M5.3 5.3a9.5 9.5 0 0 0 0 13.4M18.7 5.3a9.5 9.5 0 0 1 0 13.4")
     val chip = icon("chip", "M6 6h12v12H6z", "M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4")
     val disc = icon("disc", "M12 3.5a8.5 8.5 0 1 1 0 17 8.5 8.5 0 0 1 0-17z", "M12 10a2 2 0 1 1 0 4 2 2 0 0 1 0-4z")
     val user = icon("user", "M12 4.5a3.8 3.8 0 1 1 0 7.6 3.8 3.8 0 0 1 0-7.6z", "M4.5 20c.8-3.8 3.8-5.6 7.5-5.6s6.7 1.8 7.5 5.6")
-    val list = icon("list", "M8 6.5h12M8 12h12M8 17.5h12", "F:M3.5 5.5h2v2h-2zM3.5 11h2v2h-2zM3.5 16.5h2v2h-2z")
+    val list = icon("list", "M8 6.5h12M8 12h12M8 17.5h12", "M5.5 6.5h.01M5.5 12h.01M5.5 17.5h.01")
     val note = icon("note", "M9 18V5.5l10-2V16", "M9 18a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0zM19 16a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0z")
     val link = icon("link", "M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1", "M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1")
     val playNext = icon("playNext", "M4 6h10M4 11h10M4 16h6", "F:M14 13.5v7l6-3.5z")
-    val more = icon("more", "F:M5 10.5h3v3H5zM10.5 10.5h3v3h-3zM16 10.5h3v3h-3z")
+    val more = icon("more", "M6.5 12m-1.2 0a1.2 1.2 0 1 0 2.4 0 1.2 1.2 0 1 0-2.4 0", "M12 12m-1.2 0a1.2 1.2 0 1 0 2.4 0 1.2 1.2 0 1 0-2.4 0", "M17.5 12m-1.2 0a1.2 1.2 0 1 0 2.4 0 1.2 1.2 0 1 0-2.4 0")
     val refresh = icon("refresh", "M20 11a8 8 0 1 0-2.4 5.7M20 4v7h-7")
     val speed = icon("speed", "M4.5 16a8 8 0 1 1 15 0", "M12 13l4-4.5")
     val check = icon("check", "M4.5 12.6l5 5L19.5 7")
     val shield = icon("shield", "M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6z")
+    // фирменный мотив: шестиугольник — силуэт логотипа
+    val hex = icon("hex", "M19.5 12L15.75 18.5H8.25L4.5 12L8.25 5.5H15.75z")
 }
 
 @Composable

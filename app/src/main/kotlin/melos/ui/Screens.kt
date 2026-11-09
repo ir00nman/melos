@@ -1,6 +1,8 @@
 package melos.ui
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,6 +33,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.badmanners.murglar.lib.core.model.node.NamedPath
 import com.badmanners.murglar.lib.core.model.node.Node
 import com.badmanners.murglar.lib.core.model.node.Node.Companion.bestCoverUrl
@@ -166,32 +169,49 @@ fun TrackScreen(track: BaseTrack) {
 
     ScrollList(Modifier.fillMaxSize()) {
         item {
-            Row(Modifier.fillMaxWidth().padding(bottom = 18.dp).enter(0, track.mediaId), horizontalArrangement = Arrangement.spacedBy(20.dp), verticalAlignment = Alignment.Bottom) {
-                Cover(track.bigCoverUrl ?: track.smallCoverUrl, 200.dp, shape = R.lg)
+            // обложка и блок по верху; высота обложки ≈ заголовок + подзаголовок + ряды 1–2
+            Row(Modifier.fillMaxWidth().padding(bottom = 18.dp).enter(0, track.mediaId), horizontalArrangement = Arrangement.spacedBy(24.dp), verticalAlignment = Alignment.Top) {
+                Cover(track.bigCoverUrl ?: track.smallCoverUrl, 176.dp, shape = R.lg)
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Row2 { Cap("Трек"); service?.let { ServiceLogo(it.id, 14.dp); Txt(it.name, color = p.muted, style = T.small) } }
-                    Txt(track.fullTitle, style = T.h1, maxLines = 3)
-                    Txt(listOfNotNull(track.artists.ifEmpty { null }, track.albumName, track.albumReleaseDate?.year?.toString(), track.genre,
-                        track.durationMs.takeIf { it > 0 }?.let(::fmt)).joinToString(" · "), color = p.muted, maxLines = 2)
-                    track.subtitle?.takeIf { it.isNotBlank() }?.let { Txt(it, color = p.warn, style = T.small) }
-                    Spacer(Modifier.height(4.dp))
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        // как в сервисах: трек, а за ним — похожие
-                        PrimaryButton("Слушать", { Player.playList(listOf(track) + similar.filter { it.mediaId != track.mediaId }, 0, track.title); BrainBus.wave() }, icon = Ic.play)
-                        Btn("Следующим", { Player.playNext(track) }, icon = Ic.playNext)
-                        Btn("В очередь", { Player.enqueue(listOf(track)) }, icon = Ic.plus)
-                        RoundButton(if (liked) Ic.heartOn else Ic.heart, { Player.toggleLike(track); if (!liked) BrainBus.heart() }, size = 36.dp, active = liked)
-                        val disliked = Library.dislikes.items.collectAsState().value.let { Library.isDisliked(track) }
-                        RoundButton(if (disliked) Ic.dislikeOn else Ic.dislike, { Player.toggleDislike(track) }, size = 36.dp, active = disliked)
-                        Btn("Сохранить на устройство", { saveToDevice(listOf(track)) }, icon = Ic.download)
-                        track.serviceUrl?.takeIf { it.startsWith("http") }?.let { url ->
-                            Btn("Открыть в ${service?.name ?: "сервисе"}", { melos.core.Browse.url(url) }, icon = Ic.link)
+                    Txt(track.fullTitle, style = T.h1.copy(fontSize = 24.sp, lineHeight = 28.sp), maxLines = 2)
+                    // подзаголовок: «исполнители · альбом · год» одной строкой (полный текст — в подсказке),
+                    // жанр и длительность — отдельные мелкие чипы, без оторванных «хвостов»
+                    val meta = listOfNotNull(track.artists.ifEmpty { null }, track.albumName, track.albumReleaseDate?.year?.toString()).joinToString(" · ")
+                    Row2(Modifier.fillMaxWidth()) {
+                        HoverTip(meta) {
+                            Txt(meta, Modifier.weight(1f, fill = false), color = p.muted, maxLines = 1)
+                        }
+                        track.genre?.takeIf { it.isNotBlank() }?.let { g ->
+                            Box(Modifier.clip(R.sm).background(p.chip).border(1.dp, p.bd, R.sm).padding(horizontal = 8.dp, vertical = 3.dp)) { Txt(g, color = p.muted, style = T.small, maxLines = 1) }
+                        }
+                        if (track.durationMs > 0) Box(Modifier.clip(R.sm).background(p.chip).border(1.dp, p.bd, R.sm).padding(horizontal = 8.dp, vertical = 3.dp)) {
+                            Txt(fmt(track.durationMs), color = p.muted, style = T.num)
                         }
                     }
-                    // исполнители, альбом, волна — переходы, как ссылки на странице трека в сервисе
-                    val links = related.filter { it.type != NodeType.TRACK }
-                    if (links.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        links.forEach { r -> Pill(r.name, icon = relIcon(r)) { Nav.go(Screen.OpenPath(r.path, r.name)) } }
+                    track.subtitle?.takeIf { it.isNotBlank() }?.let { Txt(it, color = p.warn, style = T.small) }
+                    // три ряда, одна высота и один зазор: играть/лайки → сохранить/открыть → ссылки
+                    Column(Modifier.padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            // как в сервисах: трек, а за ним — похожие
+                            PrimaryButton("Слушать", { Player.playList(listOf(track) + similar.filter { it.mediaId != track.mediaId }, 0, track.title); BrainBus.wave() }, icon = Ic.play)
+                            Btn("Следующим", { Player.playNext(track) }, icon = Ic.playNext)
+                            Btn("В очередь", { Player.enqueue(listOf(track)) }, icon = Ic.plus)
+                            RoundButton(if (liked) Ic.heartOn else Ic.heart, { Player.toggleLike(track); if (!liked) BrainBus.heart() }, size = 44.dp, active = liked)
+                            val disliked = Library.dislikes.items.collectAsState().value.let { Library.isDisliked(track) }
+                            RoundButton(if (disliked) Ic.dislikeOn else Ic.dislike, { Player.toggleDislike(track) }, size = 44.dp, active = disliked)
+                        }
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Btn("Сохранить на устройство", { saveToDevice(listOf(track)) }, icon = Ic.download)
+                            track.serviceUrl?.takeIf { it.startsWith("http") }?.let { url ->
+                                Btn("Открыть в ${service?.name ?: "сервисе"}", { melos.core.Browse.url(url) }, icon = Ic.link)
+                            }
+                        }
+                        // исполнители, альбом, волна — переходы, как ссылки на странице трека в сервисе
+                        val links = related.filter { it.type != NodeType.TRACK }
+                        if (links.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            links.forEach { r -> Pill(r.name, icon = relIcon(r)) { Nav.go(Screen.OpenPath(r.path, r.name)) } }
+                        }
                     }
                 }
             }
@@ -199,8 +219,11 @@ fun TrackScreen(track: BaseTrack) {
         lists.forEach { (r, c) ->
             val album = r.type == NodeType.ALBUM
             val title = if (album) "Из альбома «${r.name}»" else r.name
-            item(key = "h${r.path}") {
-                Row2(Modifier.padding(top = 10.dp, bottom = 6.dp)) {
+            stickyHeader(key = "h${r.path}") {
+                // ленточный фон без резкой полосы: к низу растворяется, левый край — по строкам списка
+                Row2(Modifier.fillMaxWidth().background(androidx.compose.ui.graphics.Brush.verticalGradient(
+                    listOf(p.card.copy(alpha = 0.97f), p.card.copy(alpha = 0.88f), p.card.copy(alpha = 0f))))
+                    .padding(start = 8.dp, top = 10.dp, bottom = 8.dp)) {
                     Cap(title)
                     Spacer(Modifier.weight(1f))
                     if (c.items.isNotEmpty()) Pill(if (album) "Открыть альбом" else "Все", icon = Ic.right) { Nav.go(Screen.Open(c.node)) }
@@ -297,7 +320,7 @@ fun SnapRow(s: Snap, i: Int, onPlay: () -> Unit, onRemove: () -> Unit) {
             Txt(listOfNotNull(s.artists, Services.byId(s.service)?.name).joinToString(" · "), color = p.muted, style = T.small)
         }
         IconBtn(Ic.x, onRemove, size = 14.dp)
-        Txt(if (s.durationMs > 0) fmt(s.durationMs) else "LIVE", color = p.muted, style = T.monoSmall)
+        Txt(if (s.durationMs > 0) fmt(s.durationMs) else "LIVE", color = p.muted, style = T.num)
     }
 }
 
@@ -309,7 +332,7 @@ fun DownloadsScreen() {
         item {
             Column(Modifier.padding(bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Cap("Библиотека"); Txt("Загрузки", style = T.h1)
-                Txt("Папка: ${Downloads.folder.path}", color = p.muted, style = T.monoSmall)
+                Txt("Папка: ${Downloads.folder.path}", color = p.muted, style = T.num)
                 Row2 {
                     Btn("Открыть папку", { Downloads.folder.mkdirs(); melos.core.Browse.dir(Downloads.folder) }, icon = Ic.folder)
                 }
@@ -322,7 +345,7 @@ fun DownloadsScreen() {
                     Icon(Ic.download, p.muted, size = 15.dp)
                     Txt(when (st) { is Downloads.State.Done -> st.file.name; else -> id }, Modifier.weight(1f))
                     when (st) {
-                        is Downloads.State.Running -> Txt("${(st.progress * 100).toInt()}%", color = p.acc, style = T.monoSmall)
+                        is Downloads.State.Running -> Txt("${(st.progress * 100).toInt()}%", color = p.acc, style = T.num)
                         is Downloads.State.Done -> Txt("готово", color = p.ok, style = T.small)
                         is Downloads.State.Failed -> Txt(st.reason, color = p.critical, style = T.small)
                     }
