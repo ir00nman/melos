@@ -5,7 +5,7 @@ import os, shutil, struct, subprocess
 from PIL import Image, ImageDraw
 
 S = 1024
-BG = (7, 7, 10)         # почти чёрный, как у плашки старого лого
+BG = (0, 0, 0)          # фон иконки — полный чёрный, без плашки и рамок
 RADIUS = 0.225          # скругление плашки (как было)
 
 here = os.path.dirname(os.path.abspath(__file__))
@@ -15,13 +15,15 @@ if src.size != (S, S):
 
 # знак: яркость -> альфа (чёрный фон исчезает, края остаются гладкими), цвет — чистый белый
 mark = Image.new("RGBA", (S, S), (255, 255, 255, 0))
-# альфа знака — по яркости, но только внутри плашки: рендер SVG даёт белые углы вокруг
+# альфа знака — по яркости, но внутри плашки, сжатой на 8 px: по кромке рендера остаётся
+# серое кольцо антиалиасинга от белого фона, без ин­сета оно даёт белую обводку
 from PIL import ImageChops
+inset = int(S * 0.008)
 mask = Image.new("L", (S, S), 0)
-ImageDraw.Draw(mask).rounded_rectangle([0, 0, S - 1, S - 1], radius=int(S * RADIUS), fill=255)
+ImageDraw.Draw(mask).rounded_rectangle([inset, inset, S - 1 - inset, S - 1 - inset], radius=int(S * RADIUS) - inset, fill=255)
 mark.putalpha(ImageChops.multiply(src.convert("L"), mask))
 
-# сплошной чёрный фон (без рамки — рендер SVG на белом оставлял белые углы) + знак поверх
+# полный чёрный фон + знак
 img = Image.new("RGBA", (S, S), BG + (255,))
 img.alpha_composite(mark)
 
