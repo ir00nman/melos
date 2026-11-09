@@ -17,7 +17,7 @@ echo "1/4 jar под Windows"
 # APPVER=1.0.1 — прошить версию в melos/version.txt (для обновлялки); публикует packaging/publish.sh
 VER_ARG="${APPVER:+-PappVersion=$APPVER}"
 "$ROOT/gradlew" -p "$ROOT" -q :app:packageUberJarForCurrentOS -Ptarget=windows -PdevOut="$WORK/gradle" $VER_ARG
-JAR="$(ls "$WORK"/gradle/compose/jars/*.jar | head -1)"
+JAR="$(ls -t "$WORK"/gradle/compose/jars/*.jar | head -1)"   # новейший: старые сборки лежат рядом
 
 echo "2/4 Java 21 для Windows (Temurin)"
 JRE_API="https://api.adoptium.net/v3/binary/latest/21/ga/windows/x64/jre/hotspot/normal/eclipse"
