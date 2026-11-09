@@ -170,6 +170,8 @@ fun SettingsSheet() {
                 }
             }
             SwitchRow("Выравнивать громкость", Player.normalize.collectAsState().value, { Player.normalize.value = it })
+            SwitchRow("Офлайн-режим", melos.host.NetStatus.manualOffline, { melos.host.NetStatus.manualOffline = it },
+                hint = "Играть только скачанное и локальные файлы, без сети")
             SwitchRow("Звук через Melos", tap, { Player.setTap(it) })
             Row2(Modifier.padding(top = 12.dp)) {
                 Txt("Сдвиг анимаций", Modifier.weight(1f))

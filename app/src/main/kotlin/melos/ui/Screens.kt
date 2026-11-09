@@ -32,6 +32,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -47,6 +48,7 @@ import melos.host.Services
 import melos.host.Toasts
 import melos.library.Library
 import melos.library.Snap
+import melos.library.snap
 import melos.player.Player
 import melos.player.Status
 import androidx.compose.ui.window.Popup
@@ -395,8 +397,10 @@ fun LibraryScreen() {
     val liked by melos.library.ServiceLikes.all.collectAsState()
     val loading by melos.library.ServiceLikes.loading.collectAsState()
     val favs by Library.favorites.items.collectAsState()
+    val offline by melos.host.NetStatus.offline.collectAsState()
+    val offlineSnaps by Library.offlineSnaps.collectAsState()
     var favTracks by remember { mutableStateOf<List<BaseTrack>>(emptyList()) }
-    LaunchedEffect(favs) { favTracks = runCatching { Library.resolve(favs) }.getOrDefault(emptyList()) }
+    LaunchedEffect(favs, offline) { if (!offline) favTracks = runCatching { Library.resolve(favs) }.getOrDefault(emptyList()) }
     val sources = liked.filter { it.tracks.isNotEmpty() }.map { it.service.name to it.tracks } +
         listOfNotNull(favTracks.takeIf { it.isNotEmpty() }?.let { "Избранное Melos" to it })
     val mix = remember(sources) {
@@ -405,27 +409,77 @@ fun LibraryScreen() {
         while (its.any { it.hasNext() }) for (it in its) if (it.hasNext()) { val t = it.next(); if (seen.add(t.mediaId)) out += t }
         out
     }
-    ScrollList(Modifier.fillMaxSize()) {
-        item {
-            Column(Modifier.padding(bottom = 8.dp).enter(0, "lib"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Cap("Библиотека")
-                Txt("Медиатека", style = T.h1)
-                Txt(if (sources.isEmpty()) "Лайки появятся здесь после входа в сервис"
-                    else "${mix.size} треков · " + sources.joinToString(" · ") { (name, list) -> "$name ${list.size}" },
-                    color = p.muted, maxLines = 3)
-                Row2 {
-                    if (mix.isNotEmpty()) {
-                        PrimaryButton("Слушать", { Player.playList(mix, 0, "Медиатека"); BrainBus.wave() }, icon = Ic.play)
-                        Btn("Перемешать", { Player.shuffle.value = true; Player.playList(mix.shuffled(), 0, "Медиатека"); BrainBus.wave() }, icon = Ic.shuffle)
-                        Btn("Сохранить на устройство", { saveToDevice(mix) }, icon = Ic.download)
+    LaunchedEffect(mix) { if (!offline) Library.cacheOffline(mix.map { it.snap() }) }
+
+    // строка Медиатеки: с сетью — трек из сервисов; без сети — скачанное живым файлом, остальное серым
+    data class Row(val snap: Snap, val track: BaseTrack?)
+    val rows = remember(offline, mix, offlineSnaps) {
+        val snaps = if (offline) {
+            melos.download.DownloadIndex.all().map { it.snap } + offlineSnaps.filter { c ->
+                melos.download.DownloadIndex.get(c.mediaId) == null
+            }.distinctBy { it.mediaId }
+        } else mix.map { it.snap() }
+        snaps.distinctBy { it.mediaId }.map { snap ->
+            val track = when {
+                !offline -> mix.firstOrNull { it.mediaId == snap.mediaId }
+                else -> Library.offlineTrackBuilder?.invoke(snap)
+            }
+            Row(snap, track)
+        }
+    }
+    // поиск: от 2 символов, короткий дебаунс — список локальный, фильтр бесплатный
+    var query by remember { mutableStateOf("") }
+    var q2 by remember { mutableStateOf("") }
+    var onlyDownloaded by remember { mutableStateOf(false) }
+    LaunchedEffect(query) { kotlinx.coroutines.delay(150); q2 = query.trim() }
+    val shown = remember(rows, q2) {
+        if (q2.length < 2) rows else rows.filter { Library.matches(it.snap, q2) }
+    }
+    val visible = if (onlyDownloaded) shown.filter { it.track != null } else shown
+
+    Column(Modifier.fillMaxSize()) {
+        ScrollList(Modifier.weight(1f)) {
+            item {
+                Column(Modifier.padding(bottom = 8.dp).enter(0, "lib"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Cap("Библиотека")
+                    Txt("Медиатека", style = T.h1)
+                    Txt(if (offline) "Нет сети — доступны скачанные треки" else if (sources.isEmpty()) "Лайки появятся здесь после входа в сервис"
+                        else "${mix.size} треков · " + sources.joinToString(" · ") { (name, list) -> "$name ${list.size}" },
+                        color = p.muted, maxLines = 3)
+                    if (offline) Row(Modifier.fillMaxWidth().clip(R.md).background(p.warn.copy(alpha = .1f)).border(1.dp, p.warn.copy(alpha = .4f), R.md).padding(10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Ic.wave, p.warn, size = 16.dp)
+                        Txt("Нет сети — показаны скачанные", color = p.txt.copy(alpha = .9f), style = T.small)
                     }
-                    Btn(if (loading) "Обновляю…" else "Обновить", { melos.library.ServiceLikes.refresh() }, icon = Ic.refresh)
+                    Input(query, { query = it }, Modifier.fillMaxWidth(), placeholder = "Поиск по медиатеке", leading = Ic.search)
+                    Seg(listOf(false to "Все", true to "Скачано"), onlyDownloaded, { onlyDownloaded = it }, small = true)
+                    Row2 {
+                        val playable = visible.mapNotNull { it.track }
+                        if (playable.isNotEmpty()) {
+                            PrimaryButton("Слушать", { Player.playList(playable, 0, "Медиатека"); BrainBus.wave() }, icon = Ic.play)
+                            Btn("Перемешать", { Player.shuffle.value = true; Player.playList(playable.shuffled(), 0, "Медиатека"); BrainBus.wave() }, icon = Ic.shuffle)
+                        }
+                        if (!offline && mix.isNotEmpty()) Btn("Сохранить на устройство", { saveToDevice(mix) }, icon = Ic.download)
+                        if (!offline) Btn(if (loading) "Обновляю…" else "Обновить", { melos.library.ServiceLikes.refresh() }, icon = Ic.refresh)
+                    }
                 }
             }
-        }
-        if (loading && mix.isEmpty()) item { Txt("Загружаю ваши лайки…", Modifier.padding(8.dp), p.muted) }
-        itemsIndexed(mix, key = { _, t -> "m-${t.mediaId}" }) { i, t ->
-            TrackRow(t, i, { Player.playList(mix, i, "Медиатека") }, Modifier.enter(i, t.mediaId))
+            if (loading && mix.isEmpty() && !offline) item { Txt("Загружаю ваши лайки…", Modifier.padding(8.dp), p.muted) }
+            itemsIndexed(visible, key = { _, r -> r.snap.mediaId }) { i, r ->
+                if (r.track != null) TrackRow(r.track, i, {
+                    val playable = visible.mapNotNull { it.track }
+                    Player.playList(playable, playable.indexOfFirst { it.mediaId == r.track!!.mediaId }.coerceAtLeast(0), "Медиатека")
+                }, Modifier.enter(i, r.snap.mediaId))
+                else Row(Modifier.fillMaxWidth().enter(i, r.snap.mediaId).padding(horizontal = 8.dp, vertical = 6.dp).alpha(0.45f),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Cover(r.snap.cover, 40.dp)
+                    Column(Modifier.weight(1f)) {
+                        Txt(r.snap.title, style = T.body.copy(fontWeight = FontWeight.Medium))
+                        Txt(r.snap.artists, color = p.muted, style = T.small)
+                    }
+                    Txt("не скачано", color = p.muted, style = T.small)
+                }
+            }
         }
     }
 }

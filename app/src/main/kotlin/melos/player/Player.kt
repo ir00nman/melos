@@ -449,6 +449,11 @@ object Player {
 
     /** Адрес потока и расширение файла по тому источнику, который реально отдал сервис (FLAC, AAC в MP4, MP3…). */
     suspend fun resolveWithExt(track: BaseTrack, forDownload: Boolean = false): Pair<String, String?> {
+        // скачанное играем с диска: работает без сети и не тревожит сервис
+        if (!forDownload) melos.download.DownloadIndex.get(track.mediaId)?.let {
+            val f = java.io.File(it.path)
+            return f.toPath().toUri().toString() to f.extension.takeIf { e -> e.isNotBlank() }
+        }
         val service = Services.forTrack(track) ?: error("Сервис трека не загружен")
         val murglar = service.murglar
         var last: Throwable? = null

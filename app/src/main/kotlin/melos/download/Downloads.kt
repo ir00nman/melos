@@ -5,6 +5,7 @@ import melos.core.Paths
 import melos.core.Settings
 import melos.host.Log
 import melos.host.Services
+import melos.library.snap
 import melos.host.Toasts
 import melos.lyrics.LyricsService
 import melos.player.Player
@@ -39,7 +40,10 @@ object Downloads {
 
     var folder: File
         get() = Settings.store.string("downloads.folder")?.let(::File) ?: Paths.defaultDownloads
-        set(v) = Settings.store.put("downloads.folder", v.path)
+        set(v) {
+            Settings.store.put("downloads.folder", v.path)
+            runCatching { (melos.host.Services.byId("local")?.murglar as? melos.builtin.local.LocalMurglar)?.invalidate() }   // новая папка должна попасть в скан
+        }
 
     private fun set(id: String, s: State) { _states.value = _states.value + (id to s) }
 
@@ -51,6 +55,12 @@ object Downloads {
 
     fun download(track: BaseTrack) {
         if (_states.value[track.mediaId] is State.Running) return
+        // тот же трек уже лежит на диске — не качаем повторно
+        DownloadIndex.get(track.mediaId)?.let {
+            set(track.mediaId, State.Done(File(it.path)))
+            Toasts.shortNotify("«${track.title}» уже скачан")
+            return
+        }
         set(track.mediaId, State.Running(0f))
         scope.launch {
             gate.withPermit {
@@ -67,9 +77,17 @@ object Downloads {
 
     private fun clean(s: String) = s.replace(Regex("""[\\/:*?"<>|\u0000-\u001f]"""), "_").trim().trimEnd('.').ifEmpty { "_" }.take(120)
 
-    private fun target(track: BaseTrack, ext: String): File {
-        val name = listOfNotNull(track.artists.ifBlank { null }, track.fullTitle).joinToString(" - ")
-        return File(folder, "${clean(name)}.$ext")
+    private fun target(track: BaseTrack, ext: String): File = targetFile(folder, clean(
+        listOfNotNull(track.artists.ifBlank { null }, track.fullTitle).joinToString(" - ")), ext, track.mediaId)
+
+    /** Имя без коллизий: свой mediaId — то же имя, чужой файл (или не из индекса) — суффикс « (2)». */
+    internal fun targetFile(folder: File, base: String, ext: String, mediaId: String): File {
+        var f = File(folder, "$base.$ext")
+        var i = 2
+        while (f.exists() && DownloadIndex.ownerOf(f.path) != mediaId) {
+            f = File(folder, "$base ($i).$ext"); i++
+        }
+        return f
     }
 
     private suspend fun fetch(track: BaseTrack): File {
@@ -96,8 +114,16 @@ object Downloads {
                 }
             }
         }
-        tmp.renameTo(out)
+        // renameTo молча возвращает false (особенно на Windows, если цель есть) — добиваем надёжно
+        if (!tmp.renameTo(out)) {
+            out.delete()
+            if (!tmp.renameTo(out)) {
+                tmp.copyTo(out, overwrite = true)
+                tmp.delete()
+            }
+        }
         runCatching { tag(track, out) }.onFailure { Log.w("Downloads", "tags: ${it.message}") }
+        DownloadIndex.add(track.mediaId, out, track.snap())
         return out
     }
 

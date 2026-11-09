@@ -1,6 +1,7 @@
 package melos
 
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -36,8 +37,35 @@ fun main() {
     }
     Thread.setDefaultUncaughtExceptionHandler { t, e -> Log.e("Crash", "thread ${t.name}", e) }
     Services.load()
+    // офлайн-Медиатека: собираем играемый трек из скачанного файла
+    melos.library.Library.offlineTrackBuilder = { snap: melos.library.Snap ->
+        runCatching {
+            (Services.byId("local")?.murglar as? melos.builtin.local.LocalMurglar)?.let { m ->
+                melos.download.DownloadIndex.get(snap.mediaId)?.let { e ->
+                    val f = java.io.File(e.path)
+                    m.track(melos.builtin.local.LocalMurglar.Entry(
+                        f.path, f.lastModified(), snap.title, snap.artists.ifBlank { "Неизвестный исполнитель" },
+                        snap.album, null, null, null, null, snap.durationMs, null, null))
+                }
+            }
+        }.getOrNull()
+    }
     Player.init()
+    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {   // старые загрузки (в подпапках тоже)
+        runCatching {                                                               // помечаем «скачано» по совпадению с медиатекой
+            delay(5000)
+            val local = Services.byId("local")?.murglar as? melos.builtin.local.LocalMurglar ?: return@launch
+            val byKey = local.entries().associateBy { melos.library.Library.songKey(it.artist, it.title) }
+            (melos.library.Library.offlineSnaps.value + melos.library.Library.favorites.items.value).forEach { snap ->
+                if (!melos.download.DownloadIndex.has(snap.mediaId)) byKey[melos.library.Library.songKey(snap.artists, snap.title)]?.let { e ->
+                    melos.download.DownloadIndex.add(snap.mediaId, java.io.File(e.path), snap)
+                }
+            }
+            melos.host.Log.i("DownloadIndex", "сидировано из локальных файлов: ${melos.download.DownloadIndex.all().size}")
+        }
+    }
     melos.library.ServiceLikes.start()
+    melos.host.NetStatus.start()           // фоновое отслеживание сети
     melos.host.MacMediaHub.init()          // macOS: Now Playing + медиа-клавиши
     System.getenv("MELOS_VOLUME")?.toIntOrNull()?.let { Player.volume.value = it }
     System.getenv("MELOS_PLAY")?.let(::demoPlay)

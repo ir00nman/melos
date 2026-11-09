@@ -84,8 +84,8 @@ fun SearchScreen(initial: String, serviceId: String? = null) {
     val scoped = serviceId?.let { id -> services.firstOrNull { it.id == id } }
     // общий поиск ищет и в скачанном/локальных файлах («На этом компьютере») — он работает без интернета;
     // без сети локал идёт первым, чтобы музыка находилась офлайн
-    melos.host.NetStatus.recheck()
-    val all = if (serviceId != null) listOfNotNull(scoped) else services.sortedBy { if (melos.host.NetStatus.offline && it.id == "local") 0 else 1 }
+    LaunchedEffect(Unit) { melos.host.NetStatus.recheck() }
+    val all = if (serviceId != null) listOfNotNull(scoped) else services.sortedBy { if (melos.host.NetStatus.offline.value && it.id == "local") 0 else 1 }
     val searchable = all.filter { searchRoots(it).isNotEmpty() }
     val tabs = scoped?.let(::searchRoots).orEmpty()
     val curTab = tabs.firstOrNull { it.nodeId == tab } ?: tabs.firstOrNull()

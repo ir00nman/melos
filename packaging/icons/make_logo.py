@@ -15,13 +15,15 @@ if src.size != (S, S):
 
 # знак: яркость -> альфа (чёрный фон исчезает, края остаются гладкими), цвет — чистый белый
 mark = Image.new("RGBA", (S, S), (255, 255, 255, 0))
-mark.putalpha(src.convert("L"))
+# альфа знака — по яркости, но только внутри плашки: рендер SVG даёт белые углы вокруг
+from PIL import ImageChops
+mask = Image.new("L", (S, S), 0)
+ImageDraw.Draw(mask).rounded_rectangle([0, 0, S - 1, S - 1], radius=int(S * RADIUS), fill=255)
+mark.putalpha(ImageChops.multiply(src.convert("L"), mask))
 
-# плашка со скруглением + знак поверх
-tile = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-d = ImageDraw.Draw(tile)
-d.rounded_rectangle([0, 0, S - 1, S - 1], radius=int(S * RADIUS), fill=BG + (255,))
-img = Image.alpha_composite(tile, mark)
+# сплошной чёрный фон (без рамки — рендер SVG на белом оставлял белые углы) + знак поверх
+img = Image.new("RGBA", (S, S), BG + (255,))
+img.alpha_composite(mark)
 
 img.save(os.path.join(here, "melos-brain.png"))
 print("png ok")

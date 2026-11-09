@@ -6,6 +6,7 @@ import melos.core.Paths
 import melos.core.json
 import melos.host.Log
 import melos.host.Services
+import melos.search.TrackMatch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -49,6 +50,29 @@ class SnapList(name: String, private val limit: Int) {
 
 object Library {
     val favorites = SnapList("favorites", 5000)
+
+    // последний удачный состав Медиатеки (лайки + избранное) — чтобы без сети показать хоть что-то
+    private val offlineFile = Paths.file("library-offline.json")
+    val offlineSnaps = MutableStateFlow(runCatching {
+        json.decodeFromString(ListSerializer(Snap.serializer()), offlineFile.readText())
+    }.getOrDefault(emptyList()))
+
+    fun cacheOffline(snaps: List<Snap>) {
+        if (snaps.isEmpty()) return
+        offlineSnaps.value = snaps
+        runCatching { offlineFile.writeText(json.encodeToString(ListSerializer(Snap.serializer()), snaps)) }
+    }
+
+    /** Кто может собрать играемый трек из скачанного файла (LocalMurglar на десктопе). */
+    var offlineTrackBuilder: ((Snap) -> BaseTrack?)? = null
+
+    /** Строка Медиатеки отвечает запросу: все слова — в названии, исполнителе или альбоме. */
+    fun matches(snap: Snap, query: String): Boolean {
+        val words = query.trim().split(' ').filter { it.isNotEmpty() }
+        if (words.isEmpty()) return true
+        val hay = TrackMatch.norm("${snap.title} ${snap.artists} ${snap.album ?: ""}")
+        return words.all { TrackMatch.norm(it) in hay }
+    }
     val history = SnapList("history", 300)
     /** «Не нравится»: такие треки пропускаются в волнах и при переходе по очереди. */
     val dislikes = SnapList("dislikes", 5000)
@@ -56,7 +80,7 @@ object Library {
     fun isFavorite(mediaId: String) = mediaId in favorites
 
     /** Тот же трек на любой площадке: по исполнителям и названию (дизлайк в VK — и в Яндексе, и в SoundCloud). */
-    private fun songKey(artists: String, title: String) = melos.search.TrackMatch.norm(artists) + "|" + melos.search.TrackMatch.norm(title)
+    internal fun songKey(artists: String, title: String) = melos.search.TrackMatch.norm(artists) + "|" + melos.search.TrackMatch.norm(title)
 
     fun isDisliked(track: BaseTrack): Boolean {
         val list = dislikes.items.value

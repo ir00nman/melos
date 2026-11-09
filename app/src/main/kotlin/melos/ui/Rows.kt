@@ -118,8 +118,7 @@ fun TrackRow(
             trailing?.invoke()
             when (val d = downloads[track.mediaId]) {
                 is Downloads.State.Running -> Txt("${(d.progress * 100).toInt()}%", color = p.acc, style = T.num)
-                is Downloads.State.Done -> Icon(Ic.check, p.ok, size = 13.dp)
-                else -> {}
+                else -> if (melos.download.DownloadIndex.has(track.mediaId)) Icon(Ic.check, p.ok, size = 13.dp)  // индекс переживает перезапуск
             }
             Txt(if (track.durationMs > 0) fmt(track.durationMs) else "LIVE", color = if (track.durationMs > 0) p.muted else p.critical, style = T.num)
         }

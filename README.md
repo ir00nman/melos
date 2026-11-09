@@ -60,7 +60,7 @@ app/src/main/kotlin/melos/
   player/    VlcEngine (vlcj, вывод напрямую или через Java Sound со спектром), Player (очередь), Analyzer (FFT)
   library/   избранное и история (лёгкие слепки треков)
   lyrics/    LRC и поиск текста
-  download/  загрузки с тегами
+  download/  загрузки с тегами и постоянным индексом (офлайн-медиатека)
   ui/        тема и движение, мозг, экраны, плеер, листы
 ```
 

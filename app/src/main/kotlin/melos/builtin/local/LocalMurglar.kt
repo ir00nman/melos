@@ -79,8 +79,12 @@ class LocalMurglar(
     override val possibleFormats = listOf(SourceFormat(Extension.FLAC, Bitrate.B_LOSSLESS, QualityTier.LOSSLESS, SourceFormat.SourceFormatAvailability.AVAILABLE))
 
     val folders: List<File>
-        get() = preferences.getString(K_FOLDERS, File(System.getProperty("user.home"), "Music").path)
-            .split(';', '\n').map { it.trim() }.filter { it.isNotEmpty() }.map(::File)
+        get() = (preferences.getString(K_FOLDERS, File(System.getProperty("user.home"), "Music").path)
+            .split(';', '\n').map { it.trim() }.filter { it.isNotEmpty() } + melos.download.Downloads.folder.path)
+            .distinct().map(::File)
+
+    /** Папку загрузок сменили — индекс устарел. */
+    fun invalidate() { index = null }
 
     override val murglarPreferences = listOf(
         EditPreference("local.folders", "Папки с музыкой", "Несколько папок — через точку с запятой",
