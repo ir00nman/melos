@@ -51,7 +51,6 @@ object Pulse {
     var dropPower = 0f; private set
     /** 0..1 — напряжение нарастания перед дропом (по карте трека), растёт до 1 ровно к дропу. */
     var tension by mutableFloatStateOf(0f); private set
-    // ---- форма песни (по карте трека): части, такты, фразы по 8 тактов, предвкушение смены части ----
     /** Номер текущей части песни (−1 — карты нет) и когда (по часам) в неё вошли; на перемотке — без «события». */
     var section = -1; private set
     var sectionAt = 0L; private set
@@ -67,8 +66,6 @@ object Pulse {
     /** 0..1 — последние 8 секунд трека: мозг затихает к концу. */
     var outro by mutableFloatStateOf(0f); private set
 
-    // ---- структура трека (провал → нарастание → дроп): BeatStructure на живом звуке,
-    //      в режиме карты — предпрогон по спектру карты, чтение по позиции воспроизведения ----
     val structure = BeatStructure()
     var stPhase = BeatStructure.Phase.NORMAL; private set
     /** 0..1 — провал энергии (BREAKDOWN). */
@@ -143,7 +140,6 @@ object Pulse {
         if (debugBeats) melos.host.Log.i("Beats", "kick gap=${(kicks.last() - kicks[kicks.size - 2])}ms bpm=${bpm.toInt()}")
     }
 
-    // ---- параметры трёх алгоритмов цикла кадра ----
     private const val LERP_UP = 0.45f            // [Lerp] доля пути к цели за кадр при росте (60 к/с)
     private const val LERP_DOWN = 0.14f          // [Lerp] … и при спаде: полосы опускаются мягче, чем поднимаются
     private const val PEAK_HOLD_MS = 320L        // [Peak Decay] сколько вершина «висит» наверху
@@ -247,7 +243,6 @@ object Pulse {
         // долей Analyzer (см. drain выше): он привязан к темпу и событию присвоен «слышимый» момент.
         if (playing && f != null) maxLowEnergy = max(maxLowEnergy * 0.9995f, f.lowEnergy)
 
-        // ---- карта трека: доли, дропы, энергия и нарастание — ровно по позиции воспроизведения ----
         var mapDrop = -1f
         if (map != null && playing) {
             val pos = Player.positionMs() - mapOffset
@@ -314,7 +309,6 @@ object Pulse {
         val target = if (playing) max(hold, if (mapDrop >= 0f) mapDrop else intensity * 0.8f) else 0f
         drop += (target - drop) * k(if (target > drop) 0.3f else 0.015f)       // [Lerp]
 
-        // ---- структура трека: живой звук — трекер в реальном времени; карта — предпрогон, чтение по позиции ----
         stDropEvent = false
         if (playing && f != null) {
             structure.update(dt, level, bass, treble)

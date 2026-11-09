@@ -146,8 +146,6 @@ fun NodeScreen(node: Node) {
     }
 }
 
-// Страница трека, как в сервисе: крупная обложка, исполнители и альбом — ссылками, действия;
-// ниже — разделы сервиса для этого трека: похожие треки и альбом (откуда трек).
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun TrackScreen(track: BaseTrack) {
@@ -174,14 +172,11 @@ fun TrackScreen(track: BaseTrack) {
 
     ScrollList(Modifier.fillMaxSize()) {
         item {
-            // обложка ≈240 dp по верху; справа — не выше её + запас
             Row(Modifier.fillMaxWidth().padding(bottom = 8.dp).enter(0, track.mediaId), horizontalArrangement = Arrangement.spacedBy(24.dp), verticalAlignment = Alignment.Top) {
                 Cover(track.bigCoverUrl ?: track.smallCoverUrl, 240.dp, shape = R.lg)
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Row2 { Cap("Трек"); service?.let { ServiceLogo(it.id, 14.dp); Txt(it.name, color = p.muted, style = T.small) } }
                     Txt(track.fullTitle, style = T.h1.copy(fontSize = 24.sp, lineHeight = 28.sp), maxLines = 2)
-                    // «исполнители · альбом · год» одной строкой (полный текст — в подсказке);
-                    // жанр и длительность — чипы без обрезки: не влезли — переносятся на новую строку
                     val meta = listOfNotNull(track.artists.ifEmpty { null }, track.albumName, track.albumReleaseDate?.year?.toString()).joinToString(" · ")
                     FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         HoverTip(meta) {
@@ -245,7 +240,6 @@ fun TrackScreen(track: BaseTrack) {
                                 Btn("Открыть в ${service?.let { svc -> serviceNameIn[svc.name] ?: svc.name } ?: "сервисе"}", { melos.core.Browse.url(url) }, icon = Ic.link, wrap = true)
                             }
                         }
-                        // исполнители, альбом, волна — переходы, как ссылки на странице трека в сервисе
                         val links = related.filter { it.type != NodeType.TRACK }
                         if (links.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             links.forEach { r -> Pill(r.name, icon = relIcon(r)) { Nav.go(Screen.OpenPath(r.path, r.name)) } }
@@ -258,7 +252,6 @@ fun TrackScreen(track: BaseTrack) {
             val album = r.type == NodeType.ALBUM
             val title = if (album) "Из альбома «${r.name}»" else r.name
             stickyHeader(key = "h${r.path}") {
-                // без подложки: фон карточки, левый край — по строкам списка
                 Row2(Modifier.fillMaxWidth().background(p.card).padding(start = 8.dp, top = 4.dp, bottom = 8.dp)) {
                     Cap(title)
                     Spacer(Modifier.weight(1f))
@@ -377,7 +370,7 @@ fun DownloadsScreen() {
                 }
             }
         }
-        if (states.isEmpty()) item { Empty("Скачивайте треки кнопкой «Скачать» на альбоме или через меню трека (правый клик). Теги, обложка и текст пишутся в файл.") }
+        if (states.isEmpty()) item { Empty("Скачанное появится здесь") }
         states.entries.reversed().forEachIndexed { i, (id, st) ->
             item(key = id) {
                 Row(Modifier.fillMaxWidth().enter(i, id).padding(8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -417,7 +410,7 @@ fun LibraryScreen() {
             Column(Modifier.padding(bottom = 8.dp).enter(0, "lib"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Cap("Библиотека")
                 Txt("Медиатека", style = T.h1)
-                Txt(if (sources.isEmpty()) "Войдите в сервис (значок сервиса слева → «Войти в аккаунт»), и здесь соберутся ваши лайки со всех площадок."
+                Txt(if (sources.isEmpty()) "Лайки появятся здесь после входа в сервис"
                     else "${mix.size} треков · " + sources.joinToString(" · ") { (name, list) -> "$name ${list.size}" },
                     color = p.muted, maxLines = 3)
                 Row2 {

@@ -87,7 +87,6 @@ object Updater {
         state.value = State.Idle
     }
 
-    // ---- проверка ----
 
     private suspend fun check() {
         val req = HttpRequest.newBuilder(URI("https://api.github.com/repos/$REPO/releases/latest"))
@@ -125,7 +124,6 @@ object Updater {
         return false
     }
 
-    // ---- применение ----
 
     private suspend fun apply(a: State.Available) {
         val portable = portableDir()

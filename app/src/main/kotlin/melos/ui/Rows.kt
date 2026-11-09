@@ -48,7 +48,6 @@ import melos.library.Library
 import melos.player.Player
 import melos.player.Status
 
-// Строка трека: обложка, название (акцентом, если играет — с «эквалайзером»), исполнители, действия при наведении.
 @Composable
 fun TrackRow(
     track: BaseTrack, index: Int, onPlay: () -> Unit, modifier: Modifier = Modifier,
@@ -127,7 +126,6 @@ fun TrackRow(
     }
 }
 
-// Три подпрыгивающих столбика у играющего трека.
 @Composable
 fun Bars(playing: Boolean, color: Color) {
     val inf = rememberInfiniteTransition()
@@ -139,7 +137,6 @@ fun Bars(playing: Boolean, color: Color) {
     }
 }
 
-// Карточка раздела / альбома / исполнителя / плейлиста.
 @Composable
 fun NodeCard(node: Node, modifier: Modifier = Modifier, index: Int = 0, onClick: () -> Unit) {
     val p = pal
@@ -164,7 +161,6 @@ fun NodeCard(node: Node, modifier: Modifier = Modifier, index: Int = 0, onClick:
     }
 }
 
-// Строка раздела списком (корни сервисов, папки).
 @Composable
 fun DirRow(node: Node, onClick: () -> Unit) {
     val p = pal

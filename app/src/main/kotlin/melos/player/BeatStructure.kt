@@ -14,7 +14,6 @@ import kotlin.math.min
 class BeatStructure {
     enum class Phase { NORMAL, BREAKDOWN, BUILD, DROP }
 
-    // --- выходы (читать после update) ---
     var phase = Phase.NORMAL; private set
     /** 0..1: насколько «провалилась» энергия относительно обычного уровня трека. Плавная. */
     var calm = 0f; private set

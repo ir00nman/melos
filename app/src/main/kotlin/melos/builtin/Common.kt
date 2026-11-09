@@ -37,7 +37,6 @@ fun builtinMessages(name: String, nameRu: String = name): Map<Locale, BuiltinMes
     RussianMessages.RUSSIAN to object : RussianMessages(), BuiltinMessages { override val serviceName = nameRu },
 )
 
-// ---- модели: общие для всех встроенных сервисов ----
 
 class FTrack(
     id: String, title: String, artistIds: List<String>, artistNames: List<String>, durationMs: Long,
@@ -93,7 +92,6 @@ fun bitrateOf(kbps: Int?): Bitrate = when {
     kbps >= 64 -> Bitrate.B_64; else -> Bitrate.B_32
 }
 
-// ---- JSON и сеть ----
 
 suspend fun NetworkMiddleware.getJson(
     url: String,

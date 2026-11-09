@@ -76,7 +76,6 @@ class VkMurglar(
 
     override val possibleFormats = listOf(SourceFormat(Extension.MP3, Bitrate.B_320, QualityTier.HIGH_QUALITY, AVAILABLE))
 
-    // ---- запросы ----
 
     private suspend fun raw(url: String, params: Map<String, Any?>, method: String = "GET", web: Boolean = loginResolver.web): JsonElement {
         val req = NetworkRequest.Builder(url, method).apply {
@@ -107,7 +106,6 @@ class VkMurglar(
     private fun me() = loginResolver.uid ?: error("Нужен вход в VK")
     private fun page(page: Int?) = mapOf("count" to PAGE, "offset" to (page ?: 0) * PAGE)
 
-    // ---- маппинг ----
 
     /** Обложка: у трека — от альбома, у альбома — photo или первая из thumbs. */
     private fun thumb(o: JsonElement?, size: Int) = listOf(size, 600, 300, 270, 135).firstNotNullOfOrNull { o.str("photo_$it") }
@@ -171,7 +169,6 @@ class VkMurglar(
         return Triple(parts[0], parts.getOrElse(1) { "" }, parts.getOrNull(2))
     }
 
-    // ---- каталог: так музыку грузит сам VK (audio.get/audio.search для своей музыки и поиска треков отдают пусто) ----
 
     private val cursors = java.util.concurrent.ConcurrentHashMap<String, Pair<String, String>>()   // список → (блок, next_from)
 
@@ -252,7 +249,6 @@ class VkMurglar(
         }
     }
 
-    // ---- качество: VK его не сообщает, а файлы бывают от 128 до 320 кбит/с ----
 
     private val measured = java.util.concurrent.ConcurrentHashMap<String, Int>()
 
@@ -288,13 +284,11 @@ class VkMurglar(
         return null
     }
 
-    // ---- Murglar ----
 
     override suspend fun resolveSourceForUrl(track: FTrack, source: Source): Source = source   // ссылка уже готова (живёт сутки)
 
     override suspend fun getTracksByMediaIds(mediaIds: List<String>) = tracksByIds(mediaIds.map { MediaId.getIds(it).first() })
 
-    // ---- вход ----
 
     inner class VkLoginResolver : LoginResolver {
         private val kToken = "auth.token"

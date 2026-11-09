@@ -187,7 +187,7 @@ fun SettingsSheet() {
                 Input(folder, { folder = it; Downloads.folder = java.io.File(it) }, Modifier.weight(1f))
                 Btn("Выбрать…", { melos.core.Browse.pickDir(java.io.File(folder)) { folder = it.path; Downloads.folder = it } })
             }
-            Txt("Треки сохраняются прямо в эту папку, без подпапок: «Исполнитель - Название», в лучшем качестве, какое отдаёт сервис.",
+            Txt("Без подпапок: «Исполнитель - Название», лучшее качество сервиса.",
                 Modifier.padding(top = 8.dp), pal.muted, T.small, maxLines = 3)
         }
         // аккаунты сервисов — только в меню сервиса слева («Войти в аккаунт» / «Аккаунт»), здесь их нет

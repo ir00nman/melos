@@ -100,7 +100,6 @@ class SoundCloudMurglar(
         error("Не удалось получить client_id SoundCloud")
     }
 
-    // ---- вход как на soundcloud.com: страница secure.soundcloud.com/web-auth, OAuth с кодом и PKCE, обмен кода на токен ----
     // (главный сайт показывает эту же страницу во фрейме, а встроенный WebKit фрейм входа не открывает)
     /** Новая пара PKCE и адрес страницы входа; проверочное слово запоминаем до обмена кода. */
     private suspend fun authUrl(): String {
@@ -178,7 +177,6 @@ class SoundCloudMurglar(
             }.getOrThrow()
     }
 
-    // ---- маппинг ----
 
     private fun art(url: String?, size: String) = url?.replace("-large.", "-$size.")
 
@@ -246,7 +244,6 @@ class SoundCloudMurglar(
         return FArtist(id, o.str("username") ?: "?", art(avatar, "t200x200"), art(avatar, "t500x500"), o.str("permalink_url"))
     }
 
-    // ---- запросы ----
 
     private fun page(page: Int?) = mapOf("limit" to PAGE, "offset" to (page ?: 0) * PAGE, "linked_partitioning" to 1)
 
@@ -301,7 +298,6 @@ class SoundCloudMurglar(
 
     suspend fun resolve(url: String) = api("/resolve", mapOf("url" to url)) as JsonObject
 
-    // ---- Murglar ----
 
     override suspend fun resolveSourceForUrl(track: FTrack, source: Source): Source {
         val url = source.url ?: error("Нет ссылки на поток")

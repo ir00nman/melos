@@ -56,6 +56,7 @@ object Nav {
     /** Правая панель открыта всегда; здесь — её вкладка (запоминается). */
     var side by mutableStateOf(Settings.store.string("side")?.let { runCatching { Side.valueOf(it) }.getOrNull() } ?: Side.QUEUE)
     fun showSide(s: Side) { side = s; Settings.store.put("side", s.name) }
+    fun toggleSide(s: Side) { showSide(s) }     // Android-оболочка: панель открыта всегда, только переключение
 
     /** Раздел левого меню, как в Murglar: свой (Melos) или id сервиса — справа от столбика показывается его меню. */
     var section by mutableStateOf(Settings.store.string("nav.section") ?: MELOS_SECTION)
@@ -65,7 +66,6 @@ object Nav {
     var loginFor by mutableStateOf<String?>(null)        // id сервиса, для которого открыт вход
 }
 
-// ---- горячие клавиши: одни и те же в окне и во всплывающих меню (у Popup с фокусом свои клавиши) ----
 
 /** Поля ввода, в которых сейчас фокус: пока печатаешь, пробел и стрелки — текст, а не управление плеером. */
 val typingFields = mutableSetOf<Any>()

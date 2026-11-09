@@ -125,7 +125,6 @@ object HttpNetwork : NetworkMiddleware {
         404 -> "Not Found"; 429 -> "Too Many Requests"; in 500..599 -> "Server Error"; else -> "HTTP $code"
     }
 
-    // ---- куки ----
 
     private fun matches(cookie: HttpCookie, domain: String): Boolean {
         val d = cookie.domain?.trimStart('.')?.lowercase() ?: return false

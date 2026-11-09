@@ -78,7 +78,7 @@ fun Stage(modifier: Modifier) {
                 Screen.Favorites -> LibraryScreen()
                 Screen.History -> {
                     val h by Library.history.items.collectAsState()
-                    SnapScreen("История", "Здесь появится всё, что вы слушали", h, { Library.history.remove(it.mediaId) }, onClear = { Library.history.clear() })
+                    SnapScreen("История", "Здесь появится история прослушиваний", h, { Library.history.remove(it.mediaId) }, onClear = { Library.history.clear() })
                 }
                 Screen.Downloads -> DownloadsScreen()
             }

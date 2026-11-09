@@ -69,10 +69,8 @@ fun App(topInset: Int = 0) {
         LaunchedEffect(Unit) { kotlinx.coroutines.delay(5000); melos.host.Updater.startCheck() }
         Box(Modifier.fillMaxSize().background(p.bg).rippleCatcher()) {
             Backdrop()
-            // свечение обложки: очень мягкий градиент цвета текущего трека из углов окна
             CoverGlow(Look.coverColor)
             androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
-            // узкое окно: сайдбар — колонка иконок, боковая панель уже
             val rail = maxWidth < 1180.dp
             Column(Modifier.fillMaxSize().padding(start = 10.dp, end = 10.dp, bottom = 10.dp, top = (8 + topInset).dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {

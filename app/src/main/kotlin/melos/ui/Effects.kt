@@ -33,7 +33,6 @@ import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.sin
 
-// Точка статуса в шапке — от неё расходятся волна палитры и всплеск успеха.
 object Anchor { var status by mutableStateOf(Offset(44f, 44f)) }
 
 // Подобрали цвет по обложке — акцентная волна затопляет окно от точки статуса (pal-wave, 900 мс).

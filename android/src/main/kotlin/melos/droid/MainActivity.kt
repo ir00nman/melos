@@ -82,7 +82,6 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-// ---- вход: OAuth-токен (как на десктопе «или по токену») ----
 
 @Composable
 private fun LoginScreen() {

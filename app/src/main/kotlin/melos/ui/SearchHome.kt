@@ -180,10 +180,10 @@ fun SearchScreen(initial: String, serviceId: String? = null) {
         if (query.trim().length < 2) item {
             Box(Modifier.fillMaxWidth().padding(top = 40.dp), contentAlignment = Alignment.Center) {
                 Empty(when {
-                    scoped != null && searchable.isEmpty() -> "Чтобы искать в ${scoped.name}, войдите в аккаунт."
-                    scoped != null -> "Ищем только в ${scoped.name}. Искать сразу везде — «Поиск» в меню Melos."
-                    searchable.isEmpty() -> "Ни один сервис пока не умеет искать — войдите в аккаунт в настройках или добавьте плагин."
-                    else -> "Ищем сразу в ${searchable.joinToString(", ") { it.name }}. Ссылку на трек или альбом можно просто вставить."
+                    scoped != null && searchable.isEmpty() -> "Искать в ${scoped.name} можно после входа"
+                    scoped != null -> "Ищем только в ${scoped.name}"
+                    searchable.isEmpty() -> "Нет сервисов с поиском — войдите в аккаунт или добавьте плагин"
+                    else -> "Ищем сразу в ${searchable.joinToString(", ") { it.name }}; ссылку можно вставить"
                 })
             }
         }
@@ -281,8 +281,6 @@ private fun MatchBadge(g: melos.search.TrackMatch.Group) {
     }
 }
 
-// Главная. Есть трек: мозг держит обложку точками в ядре, рядом — крупное название, большой транспорт,
-// действия, спектр из точек и «Далее». Широкое окно — две колонки, узкое — столбик. Нет трека — мозг и недавнее.
 @Composable
 fun HomeScreen() {
     val current by Player.current.collectAsState()
@@ -293,7 +291,6 @@ fun HomeScreen() {
     }
 }
 
-// Играет трек: в центре только большой мозг — всё о треке уже есть в нижнем плеере.
 @Composable
 private fun NowPlayingHome() {
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -305,7 +302,6 @@ private fun NowPlayingHome() {
     }
 }
 
-// Спектр точками: 32 столбца, цвета обложки слева направо. Без музыки — ровная сетка, как спящий мозг.
 @Composable
 fun SpectrumDots(modifier: Modifier = Modifier) {
     val p = pal
@@ -349,8 +345,7 @@ private fun IdleHome() {
                 // чаще всего на Windows: VLC не установлен или 32-битный — без него плеер молчит
                 Card(Modifier.widthIn(max = 520.dp), color = p.card2, pad = 16.dp) {
                     Txt("Melos не нашёл VLC", style = T.h2)
-                    Txt("Для звука нужен VLC 3${if (melos.core.Paths.isWindows) ", обязательно 64-битный" else ""}. " +
-                        "Если он стоит — Melos найдёт его сам; если нет — установите по кнопке ниже. Перезапускать Melos не придётся.",
+                    Txt("Для звука нужен VLC 3${if (melos.core.Paths.isWindows) " (64-битный)" else ""}.",
                         Modifier.padding(top = 4.dp), p.muted, T.small, maxLines = 3)
                     Row2(gap = 8.dp, modifier = Modifier.padding(top = 12.dp)) {
                         Btn("Найти на ПК", icon = Ic.refresh, onClick = { vlc = Player.recheckVlc() })
@@ -360,8 +355,7 @@ private fun IdleHome() {
                     }
                 }
             }
-            // один путь: разделы сервисов — только в меню слева; здесь — продолжить с того, что слушали
-            Txt("Выберите сервис слева: его меню — как на сайте", color = p.txt.copy(alpha = .8f), style = T.h2.copy(textAlign = TextAlign.Center), maxLines = 2)
+            Txt("Меню сервисов — слева", color = p.txt.copy(alpha = .8f), style = T.h2.copy(textAlign = TextAlign.Center), maxLines = 2)
             Row2(gap = 8.dp) {
                 if (history.isNotEmpty()) PrimaryButton("Продолжить", {
                     scope.launch { val tr = Library.resolve(history.take(50)); if (tr.isNotEmpty()) { Player.playList(tr, 0, "История"); BrainBus.wave() } }

@@ -62,7 +62,7 @@ fun DroidRoot(openPlayer: Boolean = false) {
 
         // «назад»: плеер → панель → шторка → история навигации → вкладка домой
         BackHandler(enabled = playerOpen) { playerOpen = false }
-        BackHandler(enabled = Nav.side != null) { Nav.side = null }
+        BackHandler(enabled = false) { }
         BackHandler(enabled = Nav.sheet != null) { Nav.sheet = null }
         BackHandler(enabled = Nav.canBack) { Nav.back() }
         BackHandler(enabled = tab != DroidTab.HOME) { tab = DroidTab.HOME }

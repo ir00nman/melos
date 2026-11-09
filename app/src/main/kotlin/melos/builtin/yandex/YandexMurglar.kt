@@ -110,7 +110,6 @@ class YandexMurglar(
 
     private fun uid() = loginResolver.uid ?: error("Нужен вход в Яндекс Музыку")
 
-    // ---- маппинг ----
 
     private fun cover(uri: String?, size: Int) = uri?.let { "https://" + it.replace("%%", "${size}x$size") }
 
@@ -173,7 +172,6 @@ class YandexMurglar(
             cover(uri, 200), cover(uri, 1000), "https://music.yandex.ru/users/$owner/playlists/$kind", owner)
     }
 
-    // ---- запросы ----
 
     suspend fun tracksByIds(ids: List<String>): List<FTrack> = ids.chunked(200).flatMap { chunk ->
         api("/tracks", mapOf("track-ids" to chunk.joinToString(","), "with-positions" to "true"), "POST").objects().mapNotNull(::track)
@@ -241,7 +239,6 @@ class YandexMurglar(
     suspend fun artistAlbums(id: String) =
         api("/artists/$id/direct-albums", mapOf("page-size" to 100, "sort-by" to "year"))["albums"].objects().mapNotNull(::album)
 
-    // ---- волны: сессии ротора, как в нынешних приложениях Яндекса ----
     // старый /rotor/station/…/tracks без обратной связи от плеера крутит почти одни лайки; сессия подбирает и новое.
     // Учится волна только на отчётах плеера (начат, дослушан, пропущен) — без них она дни подряд крутит один и тот же набор.
     private val waveQueues = java.util.concurrent.ConcurrentHashMap<String, List<String>>()   // id сессии → последние треки «id:альбом»
@@ -332,7 +329,6 @@ class YandexMurglar(
         api("/users/${uid()}/likes/$kind/$action", mapOf(kind.removeSuffix("s") + "-id" to id), "POST")
     }
 
-    // ---- Murglar ----
 
     override suspend fun resolveSourceForUrl(track: FTrack, source: Source): Source {
         if (source.id == "lossless") fileInfo(track)?.let { return it }   // не вышло — дальше обычный MP3 320

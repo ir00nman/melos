@@ -214,7 +214,6 @@ object Net {
         stars.filter { it.r > 1.3f }.take(11).forEach { it.spark = true }
     }
 
-    // ---- состояние ----
     var startAt = System.currentTimeMillis()
     var angle = 0.6f; var last = 0L
     var pulseClock = 0f; var blinkClock = 0f
@@ -237,7 +236,6 @@ object Net {
     var dim = 1f
     var origin = Offset.Zero                                              // левый верх холста в окне
     var lastStatus: melos.player.Status? = null
-    // ---- свои эффекты Melos (их нет в расширении) ----
     class Spark(var x: Float, var y: Float, var vx: Float, var vy: Float, val born: Long, val life: Float)
     val sparks = mutableListOf<Spark>()                                    // искры, улетающие от сработавших синапсов
     val shocks = ArrayDeque<Long>(); var lastShock = 0L                     // ударные кольца на сильный бит

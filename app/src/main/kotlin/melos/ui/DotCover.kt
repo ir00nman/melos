@@ -60,7 +60,6 @@ fun DotCover(url: String?, size: Dp, modifier: Modifier = Modifier) {
                     val mask = Path()
                     for (gy in 0 until CELLS) for (gx in 0 until CELLS) if (u >= cellDelay(gx, gy)) mask.addRect(Rect(gx * c, gy * c, (gx + 1) * c + 0.5f, (gy + 1) * c + 0.5f))
                     clipPath(mask) { this@drawWithContent.drawContent() }
-                    // свежая клетка на миг вспыхивает
                     for (gy in 0 until CELLS) for (gx in 0 until CELLS) {
                         val pop = 1 - ((u - cellDelay(gx, gy)) / 0.12f)
                         if (pop in 0f..1f) drawRect(Color.White.copy(alpha = 0.5f * pop), Offset(gx * c, gy * c), Size(c, c))

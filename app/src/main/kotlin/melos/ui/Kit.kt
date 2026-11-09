@@ -321,7 +321,6 @@ private fun HexDots() {
         val now = System.currentTimeMillis() / 1000f
         val c = Offset(size.width / 2f, size.height / 2f)
         val r = min(size.width, size.height) / 2f * 0.72f
-        // вершины плоского (flat-top) шестиугольника
         val v = (0..5).map { k ->
             val a = Math.toRadians(60.0 * k)
             Offset(c.x + r * kotlin.math.cos(a).toFloat(), c.y + r * kotlin.math.sin(a).toFloat())

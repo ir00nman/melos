@@ -56,7 +56,6 @@ enum class Accent(val label: String, val dark: Color, val light: Color) {
 
 enum class ThemeMode(val label: String) { SYSTEM("Системная"), DARK("Тёмная"), LIGHT("Светлая") }
 
-// Настройки внешнего вида — глобальные, переживают перезапуск.
 object Look {
     private val s = Settings.store
     var theme by mutableStateOf(s.string("theme")?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() } ?: ThemeMode.DARK)

@@ -106,7 +106,6 @@ object Chromium {
 
     init { Runtime.getRuntime().addShutdownHook(Thread { runCatching { shutdown(); cleanup() } }) }
 
-    // ---- одно окно входа ----
 
     private suspend fun session(
         cdp: Cdp, enableJS: Boolean, userAgent: String?, startUrl: String, domains: List<String>,
@@ -258,7 +257,6 @@ object Chromium {
         return domain == d || domain.endsWith(".$d") || d.endsWith(".$domain")
     }
 
-    // ---- процесс Chromium ----
 
     private suspend fun launch(bin: File): Cdp = withContext(Dispatchers.IO) {
         val port = File(profile.apply { mkdirs() }, "DevToolsActivePort").apply { delete() }
@@ -423,7 +421,6 @@ object Chromium {
 
     private fun JsonObject.str(key: String) = (this[key] as? JsonPrimitive)?.contentOrNull
 
-    // ---- протокол DevTools поверх WebSocket ----
 
     private class Cdp : WebSocket.Listener {
         lateinit var ws: WebSocket

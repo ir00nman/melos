@@ -26,7 +26,6 @@ object TrackMatch {
         val services: List<String> = versions.map { it.serviceId }.distinct()
     }
 
-    // ---- качество ----
 
     /** null — трек не играет целиком (отрывок Go+, DRM, недоступен): в общий поиск не берём. */
     fun quality(track: BaseTrack): Version? {
@@ -64,7 +63,6 @@ object TrackMatch {
      */
     private fun official(v: Version) = v.serviceId == "ynd" || (v.serviceId == "vk" && v.track.albumId != null)
 
-    // ---- нормализация ----
 
     /** Пометки «версии»: трек с ними — уже не тот, что искали (если их нет в запросе). */
     private val TAGS: Map<String, List<String>> = mapOf(
@@ -122,7 +120,6 @@ object TrackMatch {
 
     private fun sameLength(a: Long, b: Long) = a <= 0 || b <= 0 || abs(a - b) <= maxOf(4000L, minOf(a, b) * 3 / 100)
 
-    // ---- подсказки: чья это песня ----
 
     /**
      * Ввели только название — исполнители песен с таким названием из каталогов лейблов (без каверов и караоке),
@@ -162,7 +159,6 @@ object TrackMatch {
         return want.takeIf { groups.none { g -> g.versions.any { v -> sameTrack(w, item(null, v.track.title, v.track.subtitle, v.track.artistNames, v.track.durationMs)) } } }
     }
 
-    // ---- сборка ----
 
     private class Item(val v: Version?, val core: String, val tags: Set<String>, val artists: Set<String>, val durationMs: Long)
 

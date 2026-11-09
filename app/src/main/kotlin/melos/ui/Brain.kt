@@ -120,7 +120,6 @@ private fun DrawScope.render(p: Palette, center: Offset, scaleK: Float, light: F
     n.last = now
     val motion = Look.motion
 
-    // ---- события ----
     while (true) {
         when (val e = BrainBus.events.poll() ?: break) {
             is BrainBus.Wave -> { n.wave(e.strength); n.activeAt = now }
@@ -139,7 +138,6 @@ private fun DrawScope.render(p: Palette, center: Offset, scaleK: Float, light: F
         }
     }
 
-    // ---- музыка ----
     val status = Player.status.value
     val playing = status == Status.PLAYING
     val loading = status == Status.OPENING || status == Status.BUFFERING
@@ -168,7 +166,6 @@ private fun DrawScope.render(p: Palette, center: Offset, scaleK: Float, light: F
     val stD = if (playing && motion) Pulse.stDrop else 0f
     val drop = if (playing && motion) max(Pulse.drop, stD) else 0f
     val treble = if (playing) Pulse.treble else 0f
-    // ---- новые реакции на музыку (своё, не из расширения) ----
     //   бочка — физический «панч» всей сети и волна смещения точек от ядра;
     //   малый/хэты — хроматический сдвиг (цветная тень точек) и короткий срез-глитч сетки;
     //   бас — облако ядра разбухает; дроп — «большой взрыв»: сеть разлетается и пружинит обратно,
@@ -193,7 +190,6 @@ private fun DrawScope.render(p: Palette, center: Offset, scaleK: Float, light: F
                 ((Math.random() - 0.5) * 500).toFloat(), ((Math.random() - 0.5) * 500).toFloat(), now, 0.5f + (Math.random() * 0.4f).toFloat())
         }
     }
-    // ---- форма песни: смена части — новая поза и волна; фраза (8 тактов) — лёгкий доворот; сильная доля — шажок ----
     val secE = if (playing) Pulse.sectionEnergy else 0.6f
     // BREAKDOWN: провал и по карте (тихая часть), и по трекеру структуры — берём сильнейший
     val calm = max(((0.5f - secE) / 0.3f).coerceIn(0f, 1f), if (playing) Pulse.stCalm else 0f)
@@ -235,7 +231,6 @@ private fun DrawScope.render(p: Palette, center: Offset, scaleK: Float, light: F
         }
     }
 
-    // ---- настроение: цель по состоянию, текущее плавно догоняет (~0,3 с) ----
     val target: Net.Mood = when {
         n.absorb != null -> Net.MOODS.getValue("absorbing")
         now < n.thinkUntil -> Net.MOODS.getValue("thinking")
@@ -258,7 +253,6 @@ private fun DrawScope.render(p: Palette, center: Offset, scaleK: Float, light: F
     n.pulseClock += dt * mPulse
     n.blinkClock += dt * 0.9f
 
-    // ---- искры: бегут по графу от вершины к вершине; дошла — синапс срабатывает ----
     n.edgeWalk.clear()
     if (mWalk < 0.3f || !motion) n.walkers.clear() else {
         val count: Int; val speed: Float
@@ -293,7 +287,6 @@ private fun DrawScope.render(p: Palette, center: Offset, scaleK: Float, light: F
         }
     }
 
-    // ---- сон, приглушение, вращение ----
     val asleep = !playing && !loading && n.absorb == null && now - n.activeAt > Net.SLEEP_AFTER
     n.sleep += ((if (asleep) 1f else 0f) - n.sleep) * min(1f, dt * (if (asleep) 0.35f else 4f))
     val dimTarget = (if (n.absorb != null) 0.9f else 1f) * (1 - 0.5f * n.sleep)
@@ -309,7 +302,6 @@ private fun DrawScope.render(p: Palette, center: Offset, scaleK: Float, light: F
     val frozen = if (sq != null && sq[3] > 0 && sqAge < sq[3]) 0f else 1f
     val scrubK = (1 - (now - n.scrubAt) / 700f).coerceIn(0f, 1f)
     val rewireK = (1 - (now - n.rewireAt) / 900f).coerceIn(0f, 1f)
-    // ---- поза логотипа: на паузе и в простое сеть доворачивается к силуэту лого и замирает, при игре снова крутится ----
     val poseTarget = if (!playing && !loading && n.grab == null && n.absorb == null && status != Status.ERROR && now - n.errorAt > 1500) 1f else 0f
     n.poseK += (poseTarget - n.poseK) * min(1f, dt * 1.4f)
     // вращение — только через губернатор: цель пружиной (старт/стоп ~0.8 с, потолок 0.35 рад/с),
@@ -319,7 +311,6 @@ private fun DrawScope.render(p: Palette, center: Offset, scaleK: Float, light: F
         n.angle += omega * dt + n.scrubDir * 16f * scrubK * scrubK * dt      // прокрутка при перемотке — руками пользователя
     }
 
-    // ---- геометрия кадра ----
     val w = size.width; val h = size.height
     val cell = max(2f, (Net.CELL * density).roundToInt().toFloat())
     n.cellPx = cell
@@ -337,7 +328,6 @@ private fun DrawScope.render(p: Palette, center: Offset, scaleK: Float, light: F
     val shake = bangFlash * 12f * density
     val cx = baseCx + n.leanX + sin(now * 0.07f) * shake; val cy = baseCy + n.leanY + cos(now * 0.09f) * shake
     n.lastCx = cx; n.lastCy = cy
-    // масштаб: пульс бита ≤ 3%, дроп — пружина 1.0→1.12→1.0, BREAKDOWN сжимает к ядру до 88%, «вдох» втягивает на 8%
     // масштаб: пульс бита ≤3%, дроп — пружина 1.0→1.06→1.0, BREAKDOWN до 95%, «вдох» −4%
     val R = min(w, h * 0.92f) * 0.36f * scaleK * zoom * (1 - shrinkK) * (1 + punch * (0.02f + 0.01f * energy) + drop * 0.06f + max(0f, bang) * 0.08f - tension * 0.12f
         - antic * 0.06f - outro * 0.1f - 0.05f * calm - 0.04f * inhale)
@@ -384,7 +374,6 @@ private fun DrawScope.render(p: Palette, center: Offset, scaleK: Float, light: F
     fun nearest(bx: Float, by: Float, take: Int): List<Int> =
         n.nodes.indices.sortedBy { i -> project(n.nodes[i].x, n.nodes[i].y, n.nodes[i].z); hypot(qx - bx, qy - by) }.take(take)
 
-    // точки сети
     val rwFront = if (n.rewireAt > 0 && now - n.rewireAt < 900) (now - n.rewireAt) / 900f * 1.05f else -1f
     val prevFront = n.rewireFront; if (rwFront >= 0) n.rewireFront = rwFront
     for (pt in n.pts) {
@@ -416,7 +405,6 @@ private fun DrawScope.render(p: Palette, center: Offset, scaleK: Float, light: F
         val ab = n.absorb
         if (pt.core && ab != null) { val f = (now - ab.start) / Net.ABSORB_MS; if (f > Net.GROW_F && f < Net.PULL_F) v *= 1.25f }
         if (pt.core) v *= 0.75f + 0.25f * mCore * (1 + 0.25f * sin(time * 3.2f) * max(0f, mCore - 1.2f))
-        // ядро дышит в темп трека
         if (pt.core && playing && Pulse.bpm > 0f) {
             val breath = if (calm > 0.5f) 0.5f else 1f                                     // тихая часть — вдох через долю
             v *= 0.88f + 0.24f * (0.5f + 0.5f * sin(now / 60_000f * Pulse.bpm * breath * 2 * PI.toFloat()))
@@ -544,7 +532,6 @@ private fun DrawScope.render(p: Palette, center: Offset, scaleK: Float, light: F
         }
     }
 
-    // ---- свои эффекты Melos поверх сети ----
     if (motion && assemble >= 1) {
         // сердце из точек на лайк: вырастает в ядре, держится, рассыпается искрами
         val hk = now - n.heartAt
@@ -576,7 +563,6 @@ private fun DrawScope.render(p: Palette, center: Offset, scaleK: Float, light: F
         }
     }
 
-    // ---- цвет кадра: акцент, оттенок настроения (пульсирует), цветная вспышка ----
     val tint = mTint * (0.75f + 0.25f * sin(time * 4))
     // тембр: светлый звук уводит цвет ко второму цвету обложки, басовитый — к третьему (тёплый/тёмный)
     val bright = if (playing && motion) (Pulse.brightness - 0.5f) * 2f else 0f

@@ -78,7 +78,6 @@ private fun rememberLyrics(track: BaseTrack?): LyricsState {
     return LyricsState(lyrics, loading)
 }
 
-/** Постоянная правая панель с переключением текста и очереди. */
 @Composable
 fun SidePanel(modifier: Modifier = Modifier) {
     val p = pal
@@ -153,7 +152,7 @@ private fun QueueView() {
     val index by Player.index.collectAsState()
     val state = rememberLazyListState()
     LaunchedEffect(index) { if (index > 1) state.animateScrollToItem((index - 1).coerceAtLeast(0)) }
-    if (queue.isEmpty()) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Empty("Очередь пуста. «Сыграть следующим» и «В очередь» — в меню трека.") }
+    if (queue.isEmpty()) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Empty("Очередь пуста") }
     else {
         // drag будущих треков за ручку: плавный сдвиг элементов на место перетаскиваемого
         val density = androidx.compose.ui.platform.LocalDensity.current
@@ -216,7 +215,7 @@ private fun LyricsView(ls: LyricsState, time: Long) {
     val track by Player.current.collectAsState()
     val l = ls.lyrics
     when {
-        track == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Empty("Включите трек — здесь появится текст") }
+        track == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Empty("Текст появится у играющего трека") }
         ls.loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Txt("Ищу текст…", color = p.muted) }
         l == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Empty("Текста не нашлось ни у сервиса, ни в LRCLIB") }
         l.synced != null -> {

@@ -169,7 +169,6 @@ object Player {
 
     val tapping get() = engine?.tapping == true
 
-    // ---- громкость: ползунок пользователя × поправка выравнивания (gain трека, не выше 1/peak — чтобы не клиппило) ----
     private fun gainFactor(t: BaseTrack?): Float {
         if (!normalize.value || t == null) return 1f
         val db = t.gain?.let { Regex("[-+]?\\d+(\\.\\d+)?").find(it)?.value?.toFloatOrNull() } ?: return 1f
@@ -239,7 +238,6 @@ object Player {
         eqPreset.value = name
     }
 
-    // ---- очередь ----
 
     fun playList(tracks: List<BaseTrack>, start: Int = 0, context: String? = null, radio: BaseRadio? = null) {
         if (tracks.isEmpty()) return
@@ -328,7 +326,6 @@ object Player {
         }
     }
 
-    // ---- управление ----
 
     fun toggle() = when (_status.value) {
         Status.PLAYING -> engine?.pause()
@@ -440,7 +437,6 @@ object Player {
         }
     }
 
-    // ---- источник ----
 
     private fun pickSources(track: BaseTrack): List<Source> {
         val max = quality.value.maxKbps
@@ -496,7 +492,6 @@ object Player {
         return f.toPath().toUri().toString()          // file:///… — VLC не открывает file:/… от File.toURI()
     }
 
-    // ---- события сервису (скробблинг, история прослушиваний) ----
 
     @Suppress("UNCHECKED_CAST")
     private fun supports(track: BaseTrack, event: kotlin.reflect.KClass<*>): Boolean {
@@ -516,7 +511,6 @@ object Player {
         scope.launch { runCatching { Services.forTrack(track)!!.murglar.nodeResolver.handleEvent(PlayerEvent.TrackEnd(ms), track) } }
     }
 
-    // ---- лайк: если сервис умеет лайки — ставим там (как в Murglar), иначе — в локальное «Избранное» ----
 
     fun isLiked(track: BaseTrack) = melos.library.ServiceLikes.isLiked(track.mediaId) || Library.isFavorite(track.mediaId)
 
@@ -542,7 +536,6 @@ object Player {
         }
     }
 
-    // ---- дизлайк: трек больше не звучит в волнах и при переходе по очереди; сервис, если умеет, тоже узнаёт ----
 
     fun toggleDislike(track: BaseTrack) {
         val on = !Library.isDisliked(track)
@@ -567,7 +560,6 @@ object Player {
         if (on && _current.value?.mediaId == track.mediaId) next()                // играет сейчас — дальше
     }
 
-    // ---- таймер сна ----
 
     fun sleepIn(minutes: Int?) {
         sleepJob?.cancel()
@@ -584,7 +576,6 @@ object Player {
         }
     }
 
-    // ---- сохранение очереди между запусками ----
 
     @Serializable private data class SavedQueue(val items: List<Snap>, val index: Int, val time: Long, val context: String?)
 

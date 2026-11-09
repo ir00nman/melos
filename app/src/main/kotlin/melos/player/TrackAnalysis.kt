@@ -143,7 +143,6 @@ object TrackAnalysis {
         }
     }
 
-    // ---- декод: беззвучный VLC перегоняет поток в WAV 22 кГц моно (файлы — быстрее реального времени) ----
     private suspend fun decode(mrl: String): ShortArray? {
         val out = File.createTempFile("melos-analysis", ".wav", Paths.cache)
         val player: MediaPlayer = VlcEngine.nativeFactory.mediaPlayers().newMediaPlayer()
@@ -183,7 +182,6 @@ object TrackAnalysis {
         return null
     }
 
-    // ---- разбор ----
     fun analyze(pcm: ShortArray): TrackMap {
         val frames = max(1, (pcm.size - N) / HOP)
         val window = FloatArray(N) { (0.5 - 0.5 * cos(2 * PI * it / (N - 1))).toFloat() }
